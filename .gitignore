@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Virtual environments
+venv/
+.venv/
+
+# Scratch verification logs (not deliverables)
+outputs/*_run_log*.txt
+outputs/docker_build_log.txt
+
+# Generated binary build artifacts (regenerable by re-running the pipeline;
+# not worth tracking in git, unlike the CSV/JSON/markdown deliverables in
+# outputs/results/)
+outputs/artifacts/
+
+# Task 2.4 dashboard mockup — superseded once the real Power BI dashboard exists
+outputs/results/baiju_mohan/02_sql_and_viz/dashboard_mockup.html
+outputs/results/baiju_mohan/02_sql_and_viz/dashboard_mockup.pdf
+
+# Power BI connects directly to projects_clean.csv / transactions_clean.csv —
+# these extra per-visual extracts aren't the actual data source, not needed
+outputs/results/baiju_mohan/02_sql_and_viz/dashboard_data/
+
+# OS/editor cruft
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# SQLTools scratch query sessions (local tooling, not a deliverable)
+*.session.sql
