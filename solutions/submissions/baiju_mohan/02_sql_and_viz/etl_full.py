@@ -145,7 +145,7 @@ def write_outputs(projects: pd.DataFrame, employees: pd.DataFrame, transactions:
         f"({'PASS' if elapsed_seconds < 30 else 'FAIL'})",
     ]
     summary_text = "\n".join(summary_lines)
-    with open(os.path.join(RESULTS_DIR, "pipeline_summary.txt"), "w") as f:
+    with open(os.path.join(RESULTS_DIR, "pipeline_summary.txt"), "w", encoding="utf-8") as f:
         f.write(summary_text)
     logger.info("pipeline_summary.txt written")
 

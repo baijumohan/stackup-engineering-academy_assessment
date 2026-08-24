@@ -31,8 +31,11 @@ OUTPUT
   Cleaned CSVs written to: outputs/
 """
 
+import json
 import logging
 import os
+import time
+from datetime import datetime
 
 import numpy as np
 import pandas as pd
@@ -246,10 +249,48 @@ def _write_output(df: pd.DataFrame, filename: str):
     df.to_csv(os.path.join(RESULTS_DIR, filename), index=False)
 
 
+def _write_pipeline_summary(
+    n_projects_raw: int, n_projects_clean: int,
+    n_employees_raw: int, n_employees_clean: int,
+    quality_summary: dict, elapsed_seconds: float,
+):
+    """Run-summary artifact — same shape as Pillar 2's etl_full.py, scoped to
+    Pillar 1's own load+transform+clean+write time."""
+    lines = [
+        "Presight ETL Pipeline — Pillar 1 (Foundations) Run Summary",
+        "=" * 50,
+        f"Run timestamp:        {datetime.now().isoformat()}",
+        f"Pipeline elapsed time: {elapsed_seconds:.2f} seconds",
+        "",
+        "Row counts (before -> after cleaning):",
+        f"  projects:   {n_projects_raw:<6} -> {n_projects_clean}",
+        f"  employees:  {n_employees_raw:<6} -> {n_employees_clean}",
+        "",
+        "Data quality decisions made:",
+        "  - projects.budget / actual_cost: null -> 0 (see transform_projects)",
+        f"  - employees: {quality_summary.get('missing_email_fixed', 0)} blank emails -> 'unknown@presight.ai'",
+        f"  - employees: {quality_summary.get('invalid_hire_date_format_fixed', 0)} non-date-shaped + "
+        f"{quality_summary.get('implausible_hire_date_fixed', 0)} implausible hire_date values -> null",
+        f"  - employees: {quality_summary.get('years_experience_out_of_range_fixed', 0)} years_experience "
+        "out-of-range values -> imputed with level median",
+        f"  - employees: {quality_summary.get('salary_level_mismatch_fixed', 0)} salary values outside the "
+        "level's [p5,p95] band -> winsorised to p95",
+        f"  - employees: {quality_summary.get('status_conflicts_found', 0)} Active-under-Inactive-manager "
+        "conflicts found (guardrail, kept even at 0)",
+        "",
+        f"Target: full Pillar 1 pipeline (projects + employees) in < 30 seconds. "
+        f"Actual: {elapsed_seconds:.2f}s ({'PASS' if elapsed_seconds < 30 else 'FAIL'})",
+    ]
+    with open(os.path.join(RESULTS_DIR, "pipeline_summary.txt"), "w", encoding="utf-8") as f:
+        f.write("\n".join(lines))
+    logger.info("pipeline_summary.txt written")
+
+
 def run_pipeline():
     """
     Orchestrates the Pillar 1 pipeline end to end.
     """
+    start = time.time()
     logger.info("=" * 70)
     logger.info("Pillar 1 — Foundations pipeline starting")
     logger.info("=" * 70)
@@ -266,12 +307,18 @@ def run_pipeline():
     _write_output(employees_clean, "employees_clean.csv")
     logger.info("Wrote employees_clean.csv (%d rows x %d cols)", *employees_clean.shape)
 
-    import json
     quality_summary = employees_clean.attrs.get("quality_summary", {})
-    with open(os.path.join(RESULTS_DIR, "employees_quality_summary.json"), "w") as f:
+    with open(os.path.join(RESULTS_DIR, "employees_quality_summary.json"), "w", encoding="utf-8") as f:
         json.dump(quality_summary, f, indent=2)
 
-    logger.info("Pillar 1 pipeline complete. Outputs written to %s", RESULTS_DIR)
+    elapsed = time.time() - start
+    _write_pipeline_summary(
+        len(raw_projects), len(projects_clean),
+        len(raw_employees), len(employees_clean),
+        quality_summary, elapsed,
+    )
+
+    logger.info("Pillar 1 pipeline complete in %.2f seconds. Outputs written to %s", elapsed, RESULTS_DIR)
     return projects_clean, employees_clean
 
 

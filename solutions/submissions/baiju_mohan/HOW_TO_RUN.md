@@ -59,14 +59,15 @@ Stop everything later with `docker compose down`.
 ```
 python solutions/submissions/baiju_mohan/01_foundations/etl_pipeline.py
 ```
-Writes `projects_clean.csv` / `employees_clean.csv` to
-`outputs/results/baiju_mohan/01_foundations/`.
+Writes `projects_clean.csv` / `employees_clean.csv` / `employees_quality_summary.json` /
+`pipeline_summary.txt` to `outputs/results/baiju_mohan/01_foundations/`.
 
 **Check it worked:**
 ```
 python -c "import pandas as pd; print(pd.read_csv('outputs/results/baiju_mohan/01_foundations/projects_clean.csv').shape)"
+type outputs\results\baiju_mohan\01_foundations\pipeline_summary.txt
 ```
-Expect `(500, 17)`.
+Expect `(500, 17)`, and `Actual: <n>s (PASS)` in the summary — target is under 30 seconds.
 
 **Tool: DuckDB CLI (or any SQL client) against `outputs/presight_warehouse.duckdb`**
 Run `01_foundations/data_model.sql`'s Section 1 (star schema DDL + SCD2

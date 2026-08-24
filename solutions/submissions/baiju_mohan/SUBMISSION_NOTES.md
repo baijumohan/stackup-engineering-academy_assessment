@@ -57,7 +57,7 @@ Every artifact has **one** canonical location.
 
 | Artifact | Path |
 |---|---|
-| `projects_clean.csv`, `employees_clean.csv`, `employees_quality_summary.json` | `outputs/results/baiju_mohan/01_foundations/` |
+| `projects_clean.csv`, `employees_clean.csv`, `employees_quality_summary.json`, `pipeline_summary.txt` | `outputs/results/baiju_mohan/01_foundations/` |
 | Star schema + `dim_employee` (SCD2) | `outputs/presight_warehouse.duckdb` — single shared file, not namespaced per pillar |
 | `transactions_clean.csv`, `pipeline_summary.txt`, `presight_dashboard.pbix` | `outputs/results/baiju_mohan/02_sql_and_viz/` |
 | Spark's 5 Parquet tables | `outputs/artifacts/baiju_mohan/03_big_data/spark/` — **gitignored**, regenerable binary build output |

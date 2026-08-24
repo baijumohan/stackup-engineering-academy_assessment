@@ -2,6 +2,18 @@
 
 Real numbers from the actual outputs, not restated claims. Re-verified by re-running the pipeline and querying the warehouse directly — commands to reproduce each check are included.
 
+## Pipeline run
+
+| Check | Result |
+|---|---|
+| `pipeline_summary.txt` target | < 30s |
+| `pipeline_summary.txt` actual | 0.07s (PASS) |
+
+```powershell
+python solutions/submissions/baiju_mohan/01_foundations/etl_pipeline.py
+type outputs\results\baiju_mohan\01_foundations\pipeline_summary.txt
+```
+
 ## Task 1.1 — `projects_clean.csv`
 
 | Check | Result |

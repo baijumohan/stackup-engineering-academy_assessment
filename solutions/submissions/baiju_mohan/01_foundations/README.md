@@ -18,6 +18,7 @@
 | `projects_clean.csv` | `outputs/results/baiju_mohan/01_foundations/` |
 | `employees_clean.csv` | `outputs/results/baiju_mohan/01_foundations/` |
 | `employees_quality_summary.json` | `outputs/results/baiju_mohan/01_foundations/` |
+| `pipeline_summary.txt` | `outputs/results/baiju_mohan/01_foundations/` |
 | `dim_employee` (in the star schema) | `outputs/presight_warehouse.duckdb` — single shared warehouse file, not namespaced per pillar |
 
 See [ASSUMPTIONS.md](ASSUMPTIONS.md) and [VALIDATION_EVIDENCE.md](VALIDATION_EVIDENCE.md) for the reasoning behind the less obvious decisions and the real numbers backing them.
