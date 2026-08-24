@@ -74,7 +74,7 @@ Wrote the Dockerfile and `.dockerignore`, the full governance document across al
 
 **A distribution check that was a permanent false positive.** The "flag if >30% of a column shares one value" check correctly caught real issues in `category`/`payment_status`, but also flagged `currency` — legitimately 100% "AED" by design. Excluded it from that config entry rather than let it become noise nobody trusts.
 
-**Keeping the "6+ checks" requirement honest.** Easy to write nine checks that all trivially pass. Ran the framework against the real, uncleaned data instead — results are genuinely mixed (6/9, 5/9, 6/9 across the three datasets), with specific real failures, not a suspiciously clean report.
+**Keeping the "6+ checks" requirement honest.** Easy to write nine checks that all trivially pass. Ran the framework against the real, uncleaned data instead — results are genuinely mixed (6/9, 3/9, 6/9 across the three datasets), with specific real failures, not a suspiciously clean report.
 
 ## 9. Data Quality, Reliability, Security & Performance
 
