@@ -73,11 +73,7 @@ flowchart TD
 
 The key design choice: `fact_transactions` joins `dim_employee` on a **point-in-time** match (`transaction_date BETWEEN valid_from AND valid_to`), not a simple FK. A 2022 transaction resolves to whoever was valid in 2022, not today's row — the whole reason `dim_employee` is SCD2.
 
-## 6. My Responsibilities & Contributions
-
-Designed the warehouse loading logic including the point-in-time join, wrote all six business questions, ran the full optimisation exercise with real captured output, and built the dashboard from that output.
-
-## 7. Key Engineering Decisions
+## 6. Key Engineering Decisions
 
 **Point-in-time resolution for `employee_key`.** A naive join resolves every transaction to whoever that employee is *today* — wrong if they've since been promoted. `BETWEEN valid_from AND valid_to` gets it right by construction, and it's the clearest illustration of why SCD2 exists here.
 
@@ -85,7 +81,7 @@ Designed the warehouse loading logic including the point-in-time join, wrote all
 
 **Reported the honest optimisation result, not a fabricated one.** The brief expected 10x+. On DuckDB at this scale, both queries ran in ~6-7ms, because DuckDB's optimiser already rewrites the comma-join and the "correlated" subquery turned out not to be correlated at all. I reported what happened and explained why, plus where it'd actually matter (production Postgres, 10-50M rows) — that answer survives a follow-up question; a fabricated number doesn't.
 
-## 8. Challenges & Fixes
+## 7. Challenges & Fixes
 
 **Checking that joins don't quietly duplicate rows.** If a join accidentally matches more than one row on the other side, it silently duplicates financial rows with no error message. Added a row-count check after each join in `enrich_transactions()`, so if this ever happens the pipeline fails loudly instead of quietly shipping a wrong dashboard.
 
@@ -93,7 +89,7 @@ Designed the warehouse loading logic including the point-in-time join, wrote all
 
 **A Power BI relationship setup that would have quietly broken filtering.** The plan was one Year slicer that filters both the project-level charts and the transaction-level trend line. Doing that by connecting `projects_clean` directly to the Date table would create a loop, since `projects_clean` and `transactions_clean` are already connected to each other through `project_id`, and both connect to the Date table too. Power BI doesn't error on this — it silently turns off one of the three relationships instead, which would have broken filtering without any warning. Instead of guessing which relationship it would disable, two separate slicers were kept: a `Project Year` column on `projects_clean` filters both the project charts and the transactions (through the existing `project_id` link), while the Date table's own `Year` only drives the trend line.
 
-## 9. Data Quality, Reliability, Security & Performance
+## 8. Data Quality, Reliability, Security & Performance
 
 `amount` nulls (1.5%) stay as true `NaN`; the derived `amount_aed` used in aggregates defaults to 0.0 so a `SUM()` doesn't break. `approved_by` nulls (4.9%) become `is_approved = False`, no fabricated approver.
 
@@ -101,6 +97,6 @@ The warehouse load surfaced a real finding: 25 transactions have an approver who
 
 Performance: full 50,000-row ETL in 0.63s against a 30s target.
 
-## 10. Outcome & Business Value
+## 9. Outcome & Business Value
 
 Finance and Operations get six reliable, repeatable answers instead of manual spreadsheet work, backed by a warehouse that threads historical employee context through every transaction. The dashboard gives a single executive view built from real numbers. And the optimisation write-up shows the actual skill needed here — reading and reasoning about a real execution plan, not just running a benchmark.

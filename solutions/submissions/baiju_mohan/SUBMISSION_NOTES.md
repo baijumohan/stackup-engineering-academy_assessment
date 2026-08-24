@@ -78,7 +78,7 @@ This submission builds the data engineering layer for that data:
 - A scheduled pipeline with a data-quality gate (Airflow)
 - Supporting infrastructure and governance work (Docker, a governance document, a data-quality framework)
 
-Every part was tested by actually running it against real data and real infrastructure, not just by reading the code. Four real bugs were found and fixed this way — details in Section 9.
+Every part was tested by actually running it against real data and real infrastructure, not just by reading the code. Four real bugs were found and fixed this way — details in Section 8.
 
 **At a glance:**
 
@@ -187,11 +187,7 @@ flowchart TD
 
 The decision that ties everything together: treating `dim_employee` as real SCD Type 2 from the start. It's what makes the warehouse's point-in-time joins correct, what the compensation-history question depends on, and what the Airflow DQ gate re-validates on every run.
 
-## 6. My Responsibilities & Contributions
-
-Designed and built every layer end to end — the profiling that found the real data issues, the dimensional model, the SQL, the distributed processing, the streaming simulation, the orchestration, the containerisation, the governance doc. Verified every piece against real infrastructure, which is how the bugs below actually surfaced.
-
-## 7. Task-by-Task Breakdown
+## 6. Task-by-Task Breakdown
 
 One entry per task: **What was done**, **Decisions**, **Output**, **Observations**.
 Numbers below are real, captured by re-running each pipeline — see each pillar's
@@ -329,7 +325,7 @@ File: `04_infrastructure/dq_framework.py` — used by the Airflow quality check 
 - **Output:** a markdown report per dataset.
 - **Observations:** The checks were run against the real, uncleaned data instead of data that had already been fixed — the results are a genuine mix of passes and failures (6/9, 3/9, 6/9), not a report tuned to look clean.
 
-## 8. Key Engineering Decisions
+## 7. Key Engineering Decisions
 
 **SCD Type 2 as the foundation, not an afterthought.** Once `dim_employee` versions salary/role/level, `fact_transactions` can resolve "who approved this, and what was true about them then" via a point-in-time `BETWEEN` match instead of a naive current-state lookup. Everything needing historical accuracy depends on this.
 
@@ -339,7 +335,7 @@ File: `04_infrastructure/dq_framework.py` — used by the Airflow quality check 
 
 **Reported honest results over convenient ones.** The query-optimisation exercise found no measurable DuckDB speedup, and I said so with the evidence. The zero-row business questions were verified against raw distributions, not assumed to be bugs. The DQ framework ran against real uncleaned data so its results would be genuine. When the real result wasn't the impressive one, I reported the real result.
 
-## 9. Challenges & Fixes
+## 8. Challenges & Fixes
 
 Four bugs found this way, none visible just from reading the code — only found by actually running the pipeline against real data and real infrastructure:
 
@@ -354,7 +350,7 @@ Four bugs found this way, none visible just from reading the code — only found
 
 **Two gaps found by comparing against another trainee's independent solution**, not by re-reading my own code: there was no check that `employees.manager_id` actually points to a real employee, and the consistency check never verified salary against level even though the task description used that exact example. Both were fixed — the manager_id check found a real issue: 5 employees have a manager_id that doesn't match anyone. *(Pillar 4)*
 
-## 10. Data Quality, Reliability, Security & Performance
+## 9. Data Quality, Reliability, Security & Performance
 
 **Data quality**: targeted fixes during cleaning (Pillar 1, six issue categories from full-column profiling) plus a reusable framework (Pillar 4, 9 checks) that the Airflow DQ gate calls as a hard stop, not a warning.
 
@@ -364,7 +360,7 @@ Four bugs found this way, none visible just from reading the code — only found
 
 **Performance**: 0.84s for the transactions ETL, 114.7s for Spark across 99,996 events, 11.1s for the full Docker lifecycle — all measured by actually running the thing.
 
-## 11. Outcome & Business Value
+## 10. Outcome & Business Value
 
 Finance and Operations get six previously-manual questions answered reliably, backed by a warehouse that threads historical employee context through every transaction. The event stream produces five analytics tables on every run, with a proven real-time path ready for what's next. The pipeline moved from "someone runs it manually" to scheduled, gated, containerised — reviewable by Compliance, deployable by DevOps.
 

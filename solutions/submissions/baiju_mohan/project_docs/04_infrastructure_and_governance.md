@@ -56,11 +56,7 @@ flowchart TD
     end
 ```
 
-## 6. My Responsibilities & Contributions
-
-Wrote the Dockerfile and `.dockerignore`, the full governance document across all four datasets, and the DQ framework's config schema and all 9 checks. Verified all of it by actually running the container and the framework against real data.
-
-## 7. Key Engineering Decisions
+## 6. Key Engineering Decisions
 
 **Multi-stage build to contain a literal instruction's cost.** The task specified installing `requirements.txt` as-is, which pulls in Airflow's full dependency tree — far more than `etl_full.py` needs, and slow to resolve. Rather than quietly trim the file, I kept it as instructed and used the multi-stage split to keep that cost out of the runtime image.
 
@@ -70,18 +66,18 @@ Wrote the Dockerfile and `.dockerignore`, the full governance document across al
 
 **Reused the Pillar 3 env-var mechanism.** The container needed `DATA_DIR`/`OUTPUT_DIR` to resolve inside its own filesystem — same problem the Airflow container hit. Already solved, so containerising here was configuration, not new code.
 
-## 8. Challenges & Fixes
+## 7. Challenges & Fixes
 
 **A check that would always fail for the wrong reason.** The check that flags a column if one value makes up more than 30% of rows correctly caught real issues in `category`/`payment_status`, but it also flagged `currency` — which is meant to be 100% "AED", by design, not by accident. Excluded `currency` from that specific check rather than let it become a false alarm nobody trusts.
 
 **Making sure the checks were actually meaningful, not just numerous.** It's easy to write nine checks that all trivially pass and call it done. Instead, the framework was run against the real, uncleaned data — the results are a genuine mix of passes and failures (6/9, 3/9, 6/9 across the three datasets), with specific real failures, not a report tuned to look clean.
 
-## 9. Data Quality, Reliability, Security & Performance
+## 8. Data Quality, Reliability, Security & Performance
 
 Every DQ failure logs at `WARNING` with the column and count — the log output is the audit trail. The governance doc tags every PII column with GDPR/UAE PDPL, and gives salary history a longer retention window for the payroll/tax-audit angle, flagged for Legal confirmation rather than presented as settled.
 
 Performance: 0.92s pipeline time, 16.8s wall-clock including Docker startup, against a 30s target — timed by actually running `docker run`.
 
-## 10. Outcome & Business Value
+## 9. Outcome & Business Value
 
 DevOps gets a container that builds cleanly and runs well under target, ready for a scheduler or registry without rework. Compliance gets a governance doc that actually answers who can touch salary history and why. The Data Quality team gets a framework extendable by editing a dict, with 9 checks already proven against real data. This is the piece that turns "works" into "ready to hand to someone else."

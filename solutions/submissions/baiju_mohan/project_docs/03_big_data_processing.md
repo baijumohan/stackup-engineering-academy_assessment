@@ -64,11 +64,7 @@ flowchart TD
     Gate -- "fail: raise ValueError" --> Blocked["Downstream tasks\ndo NOT run"]
 ```
 
-## 6. My Responsibilities & Contributions
-
-Built all three components — Spark pipeline, Kafka producer/consumer, and the Airflow DAG including the DQ gate and the deployment mechanism that runs Pillar 1/2's code inside the Airflow container. Also solved the local Windows/Spark environment setup.
-
-## 7. Key Engineering Decisions
+## 6. Key Engineering Decisions
 
 **Explicit schema over `inferSchema`.** Inference means an extra full pass just to guess types, and the nested `payload` field can't be inferred reliably anyway. Defined the `StructType` up front instead.
 
@@ -78,7 +74,7 @@ Built all three components — Spark pipeline, Kafka producer/consumer, and the 
 
 **DAG dependencies deployed as sibling modules, not a package.** Airflow puts `dags/` on `sys.path`, so copying `etl_pipeline.py`/`etl_full.py`/`dq_framework.py` alongside the DAG lets it `import etl_pipeline` directly — no packaging step.
 
-## 8. Challenges & Fixes
+## 7. Challenges & Fixes
 
 **PySpark couldn't read any files on Windows at first.** The first run failed with `UnsatisfiedLinkError` — Spark needs Hadoop's Windows-native file-handling library to list files, and `pip install pyspark` doesn't include it. Fixed by installing Java 17 and the matching Hadoop 3.3.5 native binaries, and pointing `HADOOP_HOME` at them.
 
@@ -88,12 +84,12 @@ Built all three components — Spark pipeline, Kafka producer/consumer, and the 
 
 **Testing that the data-quality check actually blocks bad data.** Rather than just trust that the check would work as written, it was tested directly: set the threshold to an impossible value, confirmed the pipeline stopped and nothing downstream ran, then set it back and confirmed a normal run still passes.
 
-## 9. Data Quality, Reliability, Security & Performance
+## 8. Data Quality, Reliability, Security & Performance
 
 `validate_data_quality` is a hard gate: reloads all three datasets, runs the Pillar 4 DQ framework, raises if completeness on a primary key drops below 80%. With `retries=2`/`max_active_runs=1`, a bad extract gets caught and retried instead of propagating.
 
 Real numbers: Spark processed all 99,996 events in 93.3s (~1,072 events/sec). Kafka consumed all 8,333 messages at ~618 msg/sec, forwarding 14 Critical escalations correctly.
 
-## 10. Outcome & Business Value
+## 9. Outcome & Business Value
 
 The event stream went from unqueryable to five analytics-ready tables, reproducible on any future file drop. Kafka proves out the real-time ingestion pattern for whatever comes after daily batch. And the pipeline stopped depending on someone remembering to run it — it's scheduled, retried, gated, and proven to actually block bad data rather than just claiming to.

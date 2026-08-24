@@ -70,11 +70,7 @@ flowchart TD
 
 Cleaning is a straight line: load, detect, fix, write. The SCD2 build lives entirely in SQL — staging tables plus window functions (`ROW_NUMBER`, `LEAD`) merge two differently-shaped sources (a wide current-state table, a narrow change log) into one versioned dimension, directly inside the warehouse, then validates it immediately.
 
-## 6. My Responsibilities & Contributions
-
-Owned this layer end to end — profiled the raw data myself, wrote the cleaning logic, designed the star schema and the SCD2 model, and wrote the validation queries that prove it, not just eyeball it.
-
-## 7. Key Engineering Decisions
+## 6. Key Engineering Decisions
 
 **Null-fill before deriving.** Computing `budget_variance` before filling null `budget`/`actual_cost` leaves it `NaN` for those rows. I fill first, derive second, so every downstream aggregate is well-defined.
 
@@ -84,7 +80,7 @@ Owned this layer end to end — profiled the raw data myself, wrote the cleaning
 
 **Documented what SCD2 can't track.** History only covers salary/role/level, not department or manager. Every other attribute carries forward from the current snapshot, and that's stated directly rather than implied away.
 
-## 8. Challenges & Fixes
+## 7. Challenges & Fixes
 
 **A real conflict between two data sources.** One employee (`EMP0084`) had a salary in the history file that didn't match the current employee export. Rule: the current export wins, and this is written down as a decision, not left to whichever file happened to load first.
 
@@ -92,7 +88,7 @@ Owned this layer end to end — profiled the raw data myself, wrote the cleaning
 
 **A calculation that only broke in a different environment.** Ran fine locally, but failed inside the Airflow container (Pillar 3) because that container has an older version of pandas/numpy that handles a certain data type differently. Fixed by converting the value to a plain type before using it.
 
-## 9. Data Quality, Reliability, Security & Performance
+## 8. Data Quality, Reliability, Security & Performance
 
 All six DQ checks are backed by real full-column scans, not guesses — including a sixth guardrail (Active employee under an Inactive manager) that finds zero on this data and stays in anyway.
 
@@ -100,7 +96,7 @@ PII fields (`full_name`, `email`, salary) pass through but aren't logged in plai
 
 The full pipeline runs in a couple of seconds locally — the vectorised approach has real headroom at production scale.
 
-## 10. Outcome & Business Value
+## 9. Outcome & Business Value
 
 Two clean datasets and an SCD2 dimension with zero integrity failures. Everything downstream — the warehouse, Q6's compensation trend, the Airflow DQ gate — builds on this directly, reusing the same cleaning logic rather than a second copy.
 
