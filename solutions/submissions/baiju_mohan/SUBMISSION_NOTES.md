@@ -69,11 +69,16 @@ Every artifact has **one** canonical location.
 
 ## 1. Executive Summary
 
-Presight runs a project management platform for enterprise and government clients. The data behind it — project records, HR data, transactions, a platform event stream — existed only as raw exports: dirty, historyless, processed by hand when it was processed at all.
+Presight is a project management platform for enterprise and government clients. Its underlying data — project records, employee records, transactions, and a platform event stream — was only available as raw, unprocessed exports. It had missing values, no version history, and had to be cleaned by hand.
 
-I built the data engineering layer that turns that into something the business can rely on: a cleaned foundation (Pandas), a queryable star-schema warehouse with real historical employee tracking (DuckDB + SCD Type 2), a big-data layer for the 100K-event stream (PySpark + Kafka), a scheduled and quality-gated pipeline (Airflow), and the infrastructure/governance work that makes it deployable and audit-ready (Docker, a governance doc, a DQ framework).
+This submission builds the data engineering layer for that data:
+- A cleaned dataset (Pandas)
+- A star-schema data warehouse in DuckDB, with employee history tracked using SCD Type 2
+- A big-data layer for the 100,000-event stream (PySpark and Kafka)
+- A scheduled pipeline with a data-quality gate (Airflow)
+- Supporting infrastructure and governance work (Docker, a governance document, a data-quality framework)
 
-Every piece was run against real infrastructure and real data — and four genuine bugs were found and fixed specifically because I ran things end to end, not because the code looked correct on paper.
+Every part was tested by actually running it against real data and real infrastructure, not just by reading the code. Four real bugs were found and fixed this way — details in Section 9.
 
 **At a glance:**
 
@@ -89,19 +94,33 @@ Every piece was run against real infrastructure and real data — and four genui
 
 ## 2. Business Problem
 
-Three teams, one root problem: no trustworthy, queryable, historically-aware data.
+Finance and Operations had recurring questions about projects and spending, but no way to query the data directly — every answer meant manually going through CSV files.
 
-Finance and Operations needed recurring questions answered with no way to query directly — every answer meant manually reconciling CSVs. HR and Finance needed historical answers ("what was this person earning when they approved this spend"), which a current-state-only export can't give. The event stream (100K+ events) had outgrown ad hoc analysis — nobody could say which projects escalate most or when usage peaks.
+HR and Finance also needed historical information — for example, what an employee was earning when they approved a specific expense. The available data only showed the current state, not history.
 
-Underneath all three: the pipeline only ran manually, with no schedule, no quality gate, and no governance doc — nothing Compliance could sign off on or Ops could trust unattended.
+The platform also generates a stream of usage events (logins, escalations, uploads, and so on) — over 100,000 events across 12 files. There was no way to analyse this data to see which projects have the most escalations, or when usage is highest.
+
+Underneath all three problems: the pipeline that processes this data only ran manually, with no schedule, no automatic data-quality checks, and no documentation on data access and retention that Compliance could review.
 
 ## 3. Project Scope
 
-**In scope:** the full pipeline from raw export to governed, scheduled warehouse — cleaning and DQ detection, dimensional modeling with real SCD2, six business questions plus a measured query-optimisation exercise, an executive dashboard, Spark batch processing, Kafka ingestion, Airflow orchestration with a quality gate, containerisation, and governance documentation.
+**In scope:**
+- Cleaning the raw project and employee data, and detecting data quality issues
+- Building a star-schema data warehouse, with employee history tracked using SCD Type 2
+- Six business questions written as SQL queries, plus a query-optimisation exercise
+- An executive dashboard in Power BI
+- Batch processing of the event stream with Spark
+- A Kafka producer/consumer for simulated real-time event ingestion
+- An Airflow pipeline that runs on a schedule and includes a data-quality gate
+- Docker containerisation of the pipeline
+- A data governance document
 
-**Out of scope:** a multi-node Spark cluster or production Kafka deployment (scoped to prove pipeline logic, not cluster ops); cloud deployment (the env-var configuration makes that step straightforward later); final legal sign-off on retention periods (defensible defaults, flagged for review).
+**Out of scope:**
+- A multi-node Spark cluster or a production Kafka deployment — the goal was to show the pipeline logic works correctly, not to run it at production scale
+- Deploying to the cloud — the environment-variable-based configuration makes this straightforward to do later, not a rewrite
+- Final legal sign-off on data retention periods — defaults are documented and flagged for legal review
 
-**Scale:** 500 projects, 1,000 employees, ~1,800 salary-history records, 50,000 transactions, 100,000 platform events across 12 files — large enough that vectorisation, indexing, and partitioning decisions have measurable consequences.
+**Data scale:** 500 projects, 1,000 employees, about 1,800 salary-history records, 50,000 transactions, and 100,000 platform events across 12 files.
 
 ## 4. Technology Stack
 
@@ -174,130 +193,141 @@ Designed and built every layer end to end — the profiling that found the real 
 
 ## 7. Task-by-Task Breakdown
 
-Where the narrative above stays at the "why," this section is the "what/how" — one
-entry per task, File → What was done → Decisions → Output throughout, so any single
-task can be checked in isolation. Numbers below are real, captured by re-running each
-pipeline (see each pillar's `VALIDATION_EVIDENCE.md` for the commands).
+One entry per task: **What was done**, **Decisions**, **Output**, **Observations**.
+Numbers below are real, captured by re-running each pipeline — see each pillar's
+`VALIDATION_EVIDENCE.md` for the exact commands.
 
 ### Pillar 1 — Foundations (Tasks 1.1, 1.2, 1.3)
 
 **Task 1.1 — Clean and transform `projects.csv`**
 File: `01_foundations/etl_pipeline.py` → `load_projects()` + `transform_projects()`
 
-- Parsed `start_date`/`end_date` as datetime; derived `budget_variance`, `is_over_budget`, `duration_days`, `budget_utilisation_pct`, `status_category`, `risk_level` — all vectorised (`np.select`/`np.where`, no `.iterrows()`).
-- `risk_level`: Critical priority or over-budget → High; High priority or >90% utilisation → Medium; else Low.
-- Decisions: null `budget`/`actual_cost` filled with `0` *before* deriving (not after); `budget_utilisation_pct` is `0`, not NaN/inf, when `budget` is `0`; unmapped `status` values pass through rather than being force-mapped.
-- Output: `projects_clean.csv` — 500 rows, 17 columns.
+- **What was done:** Parsed `start_date`/`end_date` as dates. Added new columns: `budget_variance`, `is_over_budget`, `duration_days`, `budget_utilisation_pct`, `status_category`, `risk_level`. `risk_level` is High if the project is Critical priority or over budget, Medium if High priority or over 90% budget used, otherwise Low.
+- **Decisions:** Null `budget`/`actual_cost` are filled with `0` before calculating anything from them, not after — otherwise those calculations would come out as blank. `budget_utilisation_pct` is `0`, not blank, when `budget` is `0`. Status values outside the expected 4 categories are left as-is rather than guessed.
+- **Output:** `projects_clean.csv` — 500 rows, 17 columns.
+- **Observations:** `risk_level` ends up fairly spread out (188 High, 145 Medium, 167 Low) — not concentrated in one bucket, which is a reasonable sanity check that the rule isn't too aggressive or too lax.
 
 **Task 1.2 — Star schema + `dim_employee` (SCD Type 2)**
 File: `01_foundations/data_model.sql` (Section 1)
 
-- 6-table star schema (`fact_transactions`, `dim_project`, `dim_employee`, `dim_vendor`, `dim_date`, `bridge_employee_project`) — surrogate integer keys, natural source IDs preserved.
-- `dim_employee` built entirely in SQL: `employees_clean.csv` (current state) staged against `employees_salary_history.csv` (~1,826 rows, ~60% of employees) with `ROW_NUMBER()`/`LEAD()` chaining `valid_from`/`valid_to` periods. 5 validation queries run immediately after the build.
-- Decisions: only `role`/`level`/`salary` are true Type 2 attributes (the history file has nothing else to version); `employees_clean.csv` wins the one case where it conflicts with history (`EMP0084`); 8 employees with both no history and a nulled `hire_date` get an explicit `1900-01-01` sentinel `valid_from` rather than `NULL`, to keep the interval-arithmetic validation queries working.
-- Output: `dim_employee` — 2,232 versions in `outputs/presight_warehouse.duckdb`. 0 duplicate-current rows, 0 overlapping periods.
+- **What was done:** Designed a 6-table star schema (`fact_transactions`, `dim_project`, `dim_employee`, `dim_vendor`, `dim_date`, `bridge_employee_project`). Built `dim_employee` directly in SQL by combining the current employee data with the ~1,826-row salary-history file, using window functions to work out when each version of an employee's record started and ended. Ran 5 validation queries straight after the build.
+- **Decisions:** Only `role`/`level`/`salary` are tracked as history — the history file doesn't have anything else to track. Where the history file disagrees with the current employee data (one case, `EMP0084`), the current data wins. 8 employees have no salary history and also had their `hire_date` removed in Task 1.3 as unrecoverable — these get a fixed placeholder date (`1900-01-01`) instead of a blank value, so the validation queries don't break on it.
+- **Output:** `dim_employee` — 2,232 rows (versions) in `outputs/presight_warehouse.duckdb`. 0 duplicate "current" rows, 0 overlapping date ranges.
+- **Observations:** Only one real conflict was found between the history file and the current data (`EMP0084`) — resolving it by trusting the current export, and writing that decision down, was simpler than guessing which source was right.
 
 **Task 1.3 — Employee data quality (`clean_employees()`)**
 File: `01_foundations/etl_pipeline.py`
 
-All from full-column profiling, not the first 40 rows:
+- **What was done:** Scanned every column in the full 1,000-row file (not just the first rows) and found 6 issues:
 
 | Issue | Rows | Action |
 |---|---|---|
-| Blank/missing email | 10 | → placeholder `unknown@presight.ai` (not name-derived) |
-| Unparseable `hire_date` | 5 | → null |
-| Implausible `hire_date` (pre-1990) | 3 | → null |
-| `years_experience` outside `[0,50]` | 5 | → imputed with level median |
-| Salary outside level's `[p5,p95]` band | 3 | → winsorised to p95 |
-| Active employee under an Inactive manager | 0 | guardrail, kept despite 0 hits |
+| Blank/missing email | 10 | → placeholder `unknown@presight.ai` (not made up from the name) |
+| `hire_date` not a valid date | 5 | → set to blank |
+| `hire_date` outside a reasonable range (pre-1990) | 3 | → set to blank |
+| `years_experience` outside 0–50 | 5 | → replaced with the median for that level |
+| Salary far outside the normal range for the level | 3 | → capped to the top of the normal range |
+| Active employee reporting to an Inactive manager | 0 | check kept in even though it finds nothing here |
 
-Output: `employees_clean.csv` (1,000 rows, 13 columns) + `employees_quality_summary.json`.
+- **Decisions:** Emails get a placeholder rather than a name-guessed address, since a made-up email could be mistaken for a real one later. Bad dates are set to blank rather than guessed.
+- **Output:** `employees_clean.csv` (1,000 rows, 13 columns), `employees_quality_summary.json`, `pipeline_summary.txt`.
+- **Observations:** None of these 6 issues are visible if you only look at the first 40 rows of the file — they only show up once every row is checked.
 
 ### Pillar 2 — SQL & Data Visualization (Tasks 2.1–2.4)
 
 **Task 2.1 — Six business questions**
 File: `02_sql_and_viz/queries.sql`
 
+- **What was done:** Wrote SQL for the six required business questions against the warehouse.
+
 | Q# | Question | Rows returned |
 |---|---|---|
 | Q1 | Department budget performance | 1 |
-| Q2 | Project manager workload | 0 — legitimately empty, verified against raw distribution |
-| Q3 | Vendor concentration risk | 0 — legitimately empty, max vendor share ~4.4% |
+| Q2 | Project manager workload | 0 |
+| Q3 | Vendor concentration risk | 0 |
 | Q4 | Open financial issues | 435 |
-| Q5 | Monthly spend trend + running total (`SUM() OVER`, `LAG()`) | 726 |
-| Q6 | Compensation history (SCD2 self-join) | 20 |
+| Q5 | Monthly spend trend with running total | 726 |
+| Q6 | Compensation history (biggest salary jumps) | 20 |
+
+- **Output:** printed by `run_queries.py` — real result rows, not made-up examples.
+- **Observations:** Q2 and Q3 come back empty on this dataset. Before assuming a bug, checked the raw numbers directly: no manager has more than 3 active projects, and no vendor has more than about 4.4% of total spend — below the thresholds either query is looking for. The queries are correct; the data just doesn't happen to trigger them.
 
 **Task 2.2 — Full ETL pipeline**
-File: `02_sql_and_viz/etl_full.py` — the canonical ETL; Airflow and Docker both run this exact file.
+File: `02_sql_and_viz/etl_full.py` — the same file Airflow and Docker both run.
 
-- Loads `transactions.json` (50,000 rows), enriches with project (`project_name`/`department`) and current-employee (`approver_full_name`) context via row-count-asserted left joins, derives `is_approved`, `amount_aed`, `transaction_year_month`.
-- Decisions: `amount` nulls (1.5%) kept as true `NaN`, not imputed — `amount_aed` derives `0.0` for aggregation safety; `approved_by` nulls (4.9%) → `is_approved = False`, no approver fabricated.
-- Output: `transactions_clean.csv` (50,000 rows, 18 columns) + `pipeline_summary.txt`. Ran in 0.44s against a 30s target.
+- **What was done:** Loaded `transactions.json` (50,000 rows), added the project name/department and the approver's name to each transaction, and added `is_approved`, `amount_aed`, and `transaction_year_month` columns.
+- **Decisions:** `amount` nulls (1.5% of rows) are kept blank rather than filled in — `amount_aed` (used for totals) treats them as 0 so a sum doesn't break. `approved_by` nulls (4.9%) become `is_approved = False` rather than guessing an approver.
+- **Output:** `transactions_clean.csv` (50,000 rows, 18 columns), `pipeline_summary.txt`. Ran in 0.44s against a 30-second target.
+- **Observations:** After joining in the project and employee data, the row count is checked against the count before joining (both 50,000) — this catches a join accidentally duplicating rows, which would silently overcount every total downstream.
 
 **Task 2.3 — Query optimisation**
 File: `02_sql_and_viz/query_optimization.sql`
 
-Captured `EXPLAIN ANALYZE` on the unmodified starter query, rewrote it (explicit `JOIN...ON`, correlated subquery → CTE, early predicate filtering), re-benchmarked best-of-5, documented indexes for a production Postgres deployment.
-
-Reported honestly: both queries return the same 923 rows; best-of-5 best times 6.03ms → 5.86ms — a 1.03x speedup. DuckDB's own optimiser already rewrites the comma-join and resolves the subquery as uncorrelated at this data volume, so the rewrite's value here is readability and provable correctness, not raw speed. Where the rewrite/indexing would show a real difference (10-50M row Postgres) is documented alongside the benchmark.
+- **What was done:** Ran the given slow query and captured its real execution plan and timing. Rewrote it with explicit joins and a CTE instead of a repeated subquery. Ran the new version and compared.
+- **Output:** both versions return the same 923 rows. Best times: 6.03ms before, 5.86ms after — about 1.03x faster.
+- **Observations:** The brief expected a much bigger speedup (10x+), and this result doesn't show one. Rather than present a better-looking number, the real one is reported along with why: at this data size, DuckDB's own query engine already optimises the "slow" pattern on its own. The rewrite's real value here is that it's easier to read and is proven to return the same result — not raw speed. Documented where the rewrite/indexes would matter more (a production database with 10-50 million rows).
 
 **Task 2.4 — Executive dashboard**
-Output: `presight_dashboard.pbix`, built in Power BI Desktop, connected directly to `projects_clean.csv`/`transactions_clean.csv` — not a mockup, not a separate extract.
+- **What was done:** Built a dashboard in Power BI Desktop.
+- **Output:** `presight_dashboard.pbix`, connected directly to `projects_clean.csv`/`transactions_clean.csv`.
+- **Observations:** Connecting directly to the same clean files the rest of the pipeline uses means the dashboard can't quietly show different numbers than the SQL results — there's no separate copy of the data to fall out of sync.
 
 ### Pillar 3 — Big Data Processing (Tasks 3.1–3.3)
 
 **Task 3.1 — PySpark event processing**
 File: `03_big_data/spark_pipeline.py`
 
-- Loaded all 12 monthly `events_*.jsonl` files (99,996 rows) with an explicit `StructType` schema (no `inferSchema`), dropped null `event_id`/`user_id`, deduped by `event_id` keeping the earliest timestamp, derived `event_date`/`event_hour`/`event_month`.
-- Decisions: escalation resolution is real temporal matching (each `escalation_resolved` claims the earliest still-open `escalation_raised` before it), not positional pairing — see Challenges below for why that mattered.
+- **What was done:** Loaded all 12 monthly event files (99,996 rows total) with a fixed schema instead of letting Spark guess the column types. Removed rows with a missing `event_id`/`user_id`, removed duplicate `event_id`s, and built 5 summary tables.
 
-| Table | Rows | Partitioned by |
-|---|---|---|
-| `project_activity_summary` | 500 | — |
-| `user_activity_summary` | 960 | — |
-| `escalation_log` | 1,969 | `severity` |
-| `daily_event_volume` | 5,088 | `event_date` |
-| `peak_usage_analysis` | 20 | — |
+| Table | Rows |
+|---|---|
+| `project_activity_summary` | 500 |
+| `user_activity_summary` | 960 |
+| `escalation_log` | 1,969 |
+| `daily_event_volume` | 5,088 |
+| `peak_usage_analysis` | 20 |
 
-Output: `outputs/artifacts/baiju_mohan/03_big_data/spark/` (gitignored, regenerable). Total run: 82.80s, ~1,208 events/sec.
+- **Decisions:** Matching each "escalation raised" event to its "escalation resolved" event is done by time (the earliest still-open "raised" event before a given "resolved" event), not by position in the list.
+- **Output:** 5 Parquet tables in `outputs/artifacts/baiju_mohan/03_big_data/spark/`. Full run: 82.80s, about 1,208 events processed per second.
+- **Observations:** The first version of the escalation-matching logic matched by position instead of by time, and produced resolution times as long as -7,708 hours — clearly wrong. This was only caught by looking at the actual output, not by assuming a clean-looking run meant it worked. Fixed by matching on time instead.
 
 **Task 3.2 — Kafka producer/consumer**
 File: `03_big_data/kafka_streaming.py`
 
-Producer streams `events_2025_01.jsonl` (8,333 events) at 50ms/message, keyed by `event_type`, into `presight.project.events` (3 partitions); consumer (`auto_offset_reset=earliest`) tallies event counts and forwards Critical-severity `escalation_raised` events to `presight.escalations.critical` (1 partition).
-
-Output: `outputs/results/baiju_mohan/03_big_data/kafka/summary.json` — 8,333 produced == 8,333 consumed (no loss), 14 critical escalations forwarded, 585.9 msg/sec consumer throughput.
+- **What was done:** A producer sends events from a file into a Kafka topic, one at a time, with a small delay to simulate a live stream. A consumer reads them back, counts event types, and forwards any Critical-severity escalation to a second topic.
+- **Output:** `outputs/results/baiju_mohan/03_big_data/kafka/summary.json` — 8,333 events sent, 8,333 received (none lost), 14 Critical escalations forwarded, about 586 messages/second on the consumer side.
+- **Observations:** An early version of the forwarding code had a bug that only appeared partway through a full run (around message 5,700 of 8,333) — a short test with only a handful of messages would not have caught it. Only running the full stream against a real Kafka broker surfaced it.
 
 **Task 3.3 — Airflow DAG**
-File: `03_big_data/airflow_dag.py` — DAG `presight_etl_pipeline`, daily 06:00 Asia/Dubai, `catchup=False`, `max_active_runs=1`, `retries=2`.
+File: `03_big_data/airflow_dag.py` — DAG name `presight_etl_pipeline`, scheduled daily at 06:00 Dubai time.
 
-Task chain: parallel extract (projects/employees/transactions) → `validate_data_quality` (DQ gate, hard-blocks if any key column's completeness drops below 80%) → `transform_and_enrich` → `load_to_output` → `generate_pipeline_report` (via XCom).
-
-Deployment: `deploy_dag.ps1` copies the DAG plus its imported sibling modules (`etl_pipeline.py`, `etl_full.py`, `dq_framework.py`) into the Airflow containers' bind-mounted DAGs folder — a one-time copy, not a live mount, so it re-runs after any change to those files.
-
-Output: a manually triggered run completed `success` in ~21s. DQ gate results that run: projects 6/9, employees 3/9, transactions 6/9 checks passed — none block the run since only primary-key completeness gates it, and all three pass that specific check.
+- **What was done:** Built a pipeline with 3 extraction steps that run in parallel, followed by a data-quality check, then cleaning, then writing the output, then a summary report.
+- **Decisions:** The data-quality check is a hard stop — if completeness on a key column drops below 80%, the pipeline fails and nothing downstream runs.
+- **Output:** a manually triggered run finished successfully in about 21 seconds. Quality-check results for that run: projects 6/9 checks passed, employees 3/9, transactions 6/9 — none of these failures blocked the run, since only the 80%-completeness rule can do that, and all three datasets pass that specific check.
+- **Observations:** Rather than just trust that the failure check works, it was tested directly — set to an impossible threshold on purpose, confirmed the pipeline actually stopped and nothing downstream ran, then set back to normal and confirmed a clean run still passes.
 
 ### Pillar 4 — Infrastructure & Governance (Tasks 4.1–4.3)
 
 **Task 4.1 — Docker containerisation**
-Files: repo-root `Dockerfile`, `.dockerignore` (required at the root, not `04_infrastructure/`, since the build context needs `solutions/` and `datasets/` as siblings).
+Files: `Dockerfile` and `.dockerignore` at the repo root (not inside `04_infrastructure/`, because the build needs access to the `solutions/` and `datasets/` folders next to it).
 
-Two-stage build — a `builder` stage installs `requirements.txt` into a venv, a `runtime` stage copies only that venv plus the solution/dataset code onto a fresh `python:3.11-slim`, so pip's build cache never reaches the final image. `DATA_DIR`/`OUTPUT_DIR` read from the environment (the same mechanism built for Pillar 3's Airflow container).
-
-Output: runs `etl_full.py`, writing to `outputs/results/baiju_mohan/02_sql_and_viz/` (the container runs Pillar 2's pipeline, so it doesn't get its own output folder). 11.1s wall-clock against a 30s target.
+- **What was done:** A two-step build — the first step installs everything from `requirements.txt`, the second step copies only the finished result into a clean, smaller image.
+- **Output:** the container runs the Pillar 2 pipeline and writes to `outputs/results/baiju_mohan/02_sql_and_viz/`. Takes 11.1 seconds against a 30-second target.
+- **Observations:** `requirements.txt` as given includes Airflow's full set of dependencies, which this container doesn't actually need — the two-step build keeps that extra weight out of the final image without having to edit the requirements file.
 
 **Task 4.2 — Data governance document**
 File: `04_infrastructure/data_governance.md`
 
-Six sections across all 4 datasets: inventory, column-level classification (GDPR + UAE PDPL tags on every PII column), ownership (Owner vs. Steward), retention (salary history gets a longer window for the payroll/tax-audit angle, flagged for Legal confirmation), a least-privilege access-control matrix (Data Engineers get Read, not Read+Write, on salary history), and a Mermaid data-lineage diagram.
+- **What was done:** Wrote a document covering all 4 datasets: what data exists, how each column is classified (including which are personal data under GDPR and UAE law), who owns and can approve access to each dataset, how long each is kept, who can access what, and a diagram showing how data flows from source to dashboard.
+- **Decisions:** Data Engineers get read-only access to the salary-history file, not read/write — the pipeline only needs to read it.
+- **Observations:** The "read-only for engineers" choice goes against the usual instinct to give engineers broad access — it was a deliberate call based on what the pipeline actually needs, not a default.
 
 **Task 4.3 — Configurable data quality framework**
-File: `04_infrastructure/dq_framework.py` — imported by the Airflow DQ gate (Task 3.3), not duplicated.
+File: `04_infrastructure/dq_framework.py` — used by the Airflow quality check in Task 3.3, not a separate copy.
 
-9 checks, all driven by a `DQ_CONFIG` dict (thresholds, PK columns, ranges, FK relationships — no hardcoded column names): completeness, uniqueness, validity (numeric), validity (date), consistency, referential integrity, distribution dominance, freshness, outliers (Z-score).
-
-Kept honest: run against real uncleaned data, not tuned to pass — results are genuinely mixed (6/9 projects, 3/9 employees, 6/9 transactions on the live Airflow run), with specific real failures logged at `WARNING`, not a suspiciously clean report.
+- **What was done:** Built 9 checks (completeness, uniqueness, valid ranges for numbers and dates, cross-column consistency, foreign-key checks, distribution checks, freshness, and outliers), all controlled by one settings dictionary so a new rule is a config change, not a code change.
+- **Output:** a markdown report per dataset.
+- **Observations:** The checks were run against the real, uncleaned data instead of data that had already been fixed — the results are a genuine mix of passes and failures (6/9, 3/9, 6/9), not a report tuned to look clean.
 
 ## 8. Key Engineering Decisions
 
