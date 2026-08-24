@@ -2,23 +2,23 @@
 
 ## 1. Executive Summary
 
-With Pillar 1's clean data in place, the next problem was access: Finance and Operations had recurring questions and no reliable way to answer them without manually pulling numbers each time.
+With Pillar 1's clean data ready, the next problem was access: Finance and Operations had recurring questions and no reliable way to answer them without manually pulling numbers each time.
 
-I built the warehouse (star schema in DuckDB), wrote and validated six business questions as production SQL, benchmarked and rewrote a slow production query with real `EXPLAIN ANALYZE` evidence, and built an executive dashboard from live query output. The full ETL — flattening and enriching 50,000 transactions — runs in under a second against a 30-second target.
+This pillar builds the warehouse (a star schema in DuckDB), writes and checks six business questions as SQL, benchmarks and rewrites a slow query with real timing evidence, and builds an executive dashboard from the live data. The full ETL — loading and enriching 50,000 transactions — runs in under a second against a 30-second target.
 
 ## 2. Business Problem
 
-Finance and Operations needed six recurring questions answered: budget performance, manager workload, vendor concentration, unresolved disputes, spend trends, compensation history. Answering any of them meant manually joining CSVs — slow and not repeatable.
+Finance and Operations had six recurring questions: budget performance, manager workload, vendor concentration, unresolved disputes, spend trends, and compensation history. Answering any of them meant manually joining CSV files together — slow, and had to be redone from scratch each time.
 
-There was also a named performance problem: a production query, run "hundreds of times a day," was flagged as slow and needed a measured fix, not a guess.
+There was also a specific performance problem: a query that runs "hundreds of times a day" in production was flagged as slow and needed an actual measured fix, not a guess at what might help.
 
 ## 3. Project Scope
 
-**In scope:** loading Pillar 1 outputs plus a flattened `transactions.json` (50,000 rows) into a 6-table star schema; six validated business questions; benchmarking and rewriting the slow query with justified indexes; a one-page executive dashboard.
+**In scope:** loading Pillar 1's output plus a flattened `transactions.json` (50,000 rows) into a 6-table warehouse; six checked business questions; benchmarking and rewriting the slow query with reasoned indexes; a one-page executive dashboard.
 
-**Out of scope:** a production Postgres deployment (benchmarked on DuckDB, with the indexing strategy documented for where it'd apply).
+**Out of scope:** a production Postgres deployment — benchmarked on DuckDB instead, with the indexing strategy written down for where it would apply on Postgres.
 
-**Data volumes:** 500 projects, 1,000 employees, ~1,800 salary-history rows, 50,000 transactions — large enough that query design has a measurable effect.
+**Data volumes:** 500 projects, 1,000 employees, about 1,800 salary-history rows, 50,000 transactions.
 
 ## 4. Technology Stack
 
@@ -85,13 +85,13 @@ Designed the warehouse loading logic including the point-in-time join, wrote all
 
 **Reported the honest optimisation result, not a fabricated one.** The brief expected 10x+. On DuckDB at this scale, both queries ran in ~6-7ms, because DuckDB's optimiser already rewrites the comma-join and the "correlated" subquery turned out not to be correlated at all. I reported what happened and explained why, plus where it'd actually matter (production Postgres, 10-50M rows) — that answer survives a follow-up question; a fabricated number doesn't.
 
-## 8. Challenges & How I Solved Them
+## 8. Challenges & Fixes
 
-**Row-count assertions on every merge.** A fan-out join silently duplicates financial rows with no error. Added explicit row-count checks after each merge in `enrich_transactions()` so a future schema break fails loudly instead of shipping a wrong dashboard.
+**Checking that joins don't quietly duplicate rows.** If a join accidentally matches more than one row on the other side, it silently duplicates financial rows with no error message. Added a row-count check after each join in `enrich_transactions()`, so if this ever happens the pipeline fails loudly instead of quietly shipping a wrong dashboard.
 
-**Two business questions that legitimately return zero rows.** Q2 and Q3 came back empty. Checked the raw distributions directly (max 3 active projects/manager, max ~4.4% vendor share) before assuming a bug — the queries were right, the data just doesn't hit that condition. Documented instead of loosening the threshold to force output.
+**Two business questions that genuinely return no rows.** Q2 and Q3 came back empty. Before assuming this was a bug, checked the raw numbers directly — the highest active-project count for any one manager is 3, and the highest vendor spend share is about 4.4%, both below what the queries are checking for. The queries are correct; the condition just doesn't occur in this data. This is written down rather than loosening the thresholds just to force some output.
 
-**A Power BI relationship that would have silently broken filtering.** Wanted a single Year slicer driving both the project-level visuals and the transaction-level trend line, which meant relating `projects_clean` to the Date table directly. That would have closed a loop — `Date → transactions_clean → projects_clean → Date` — since `projects_clean` and `transactions_clean` are already related via `project_id`. Power BI would've silently marked one of the three relationships inactive rather than error, so instead of guessing, I kept the two slicers separate and correctly scoped: `Project Year` (a calculated column on `projects_clean`) filters project-level visuals *and* transactions (via the `project_id` relationship), while the Date table's own `Year` only drives the trend line.
+**A Power BI relationship setup that would have quietly broken filtering.** The plan was one Year slicer that filters both the project-level charts and the transaction-level trend line. Doing that by connecting `projects_clean` directly to the Date table would create a loop, since `projects_clean` and `transactions_clean` are already connected to each other through `project_id`, and both connect to the Date table too. Power BI doesn't error on this — it silently turns off one of the three relationships instead, which would have broken filtering without any warning. Instead of guessing which relationship it would disable, two separate slicers were kept: a `Project Year` column on `projects_clean` filters both the project charts and the transactions (through the existing `project_id` link), while the Date table's own `Year` only drives the trend line.
 
 ## 9. Data Quality, Reliability, Security & Performance
 

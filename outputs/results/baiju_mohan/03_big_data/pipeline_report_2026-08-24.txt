@@ -1,6 +1,6 @@
 Presight ETL Pipeline — DAG Run Report
 ==================================================
-DAG run date: 2026-08-24T07:50:25+00:00
+DAG run date: 2026-08-24T12:08:14+00:00
 
 Row counts (raw -> clean):
   projects:     500 -> 500

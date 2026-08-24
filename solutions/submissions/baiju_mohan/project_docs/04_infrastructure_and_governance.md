@@ -2,19 +2,19 @@
 
 ## 1. Executive Summary
 
-A pipeline that only runs on the machine it was built on is a demo, not a deliverable. And one that touches salary history and government-client data without a governance story isn't something Compliance can sign off on. This pillar closes both gaps: a multi-stage Docker build for the Pillar 2 ETL, a full governance document across all four datasets, and a configurable DQ framework the team can extend by editing a config, not by touching code.
+A pipeline that only runs on the machine it was built on isn't something that can be handed to another team to operate. And a pipeline that touches salary history and government-client data, with no documentation on who can access it, isn't something Compliance can sign off on. This pillar covers both: a Docker build for the Pillar 2 ETL, a governance document covering all four datasets, and a configurable data-quality framework that can be extended by editing a settings file instead of changing code.
 
-The container runs the full 50,000-transaction ETL in under 17 seconds against a 30s target. The DQ framework runs 9 checks against real data with genuinely mixed pass/fail results — I ran it against the raw datasets, not tuned it to look clean.
+The container runs the full 50,000-transaction ETL in under 17 seconds against a 30-second target. The data-quality framework runs 9 checks against the real data, with a genuine mix of passes and failures — it was run against the raw, uncleaned datasets rather than tuned to look clean.
 
 ## 2. Business Problem
 
-Three gaps. Deployability: the pipeline only ran as "run this file on my laptop" — nothing DevOps could hand to a scheduler. Compliance: salary history and government-client project data with no documented answer to who can access what, and under what regulation. Extensibility: DQ checks existed as one-off logic in pipeline code — every new rule meant a code change and a deploy.
+Three gaps. The pipeline could only be run manually on one machine — nothing a scheduler or another team could pick up directly. There was no documentation on who can access the salary history and government-client project data, or under what regulation. And the data-quality checks that existed were one-off logic inside the pipeline code, so every new rule meant a code change and a redeploy.
 
 ## 3. Project Scope
 
-**In scope:** a multi-stage Dockerfile + `.dockerignore` for the Pillar 2 ETL; a governance document across all four datasets; a config-driven DQ framework with 6+ checks (built 9).
+**In scope:** a Docker build (with `.dockerignore`) for the Pillar 2 ETL; a governance document covering all four datasets; a configurable data-quality framework with at least 6 checks (9 were built).
 
-**Out of scope:** actual cloud deployment (the env-var configuration makes that step straightforward later, not a rewrite); a secrets manager (nothing here needs one); final legal sign-off on retention periods (documented as defensible defaults, flagged for Legal review, not presented as settled law).
+**Out of scope:** actually deploying to the cloud — the environment-variable-based configuration makes that a straightforward next step rather than a rewrite; a secrets manager — nothing in this pipeline currently needs one; final legal sign-off on retention periods — documented as reasonable defaults and flagged for Legal to confirm, not presented as settled.
 
 ## 4. Technology Stack
 
@@ -70,11 +70,11 @@ Wrote the Dockerfile and `.dockerignore`, the full governance document across al
 
 **Reused the Pillar 3 env-var mechanism.** The container needed `DATA_DIR`/`OUTPUT_DIR` to resolve inside its own filesystem — same problem the Airflow container hit. Already solved, so containerising here was configuration, not new code.
 
-## 8. Challenges & How I Solved Them
+## 8. Challenges & Fixes
 
-**A distribution check that was a permanent false positive.** The "flag if >30% of a column shares one value" check correctly caught real issues in `category`/`payment_status`, but also flagged `currency` — legitimately 100% "AED" by design. Excluded it from that config entry rather than let it become noise nobody trusts.
+**A check that would always fail for the wrong reason.** The check that flags a column if one value makes up more than 30% of rows correctly caught real issues in `category`/`payment_status`, but it also flagged `currency` — which is meant to be 100% "AED", by design, not by accident. Excluded `currency` from that specific check rather than let it become a false alarm nobody trusts.
 
-**Keeping the "6+ checks" requirement honest.** Easy to write nine checks that all trivially pass. Ran the framework against the real, uncleaned data instead — results are genuinely mixed (6/9, 3/9, 6/9 across the three datasets), with specific real failures, not a suspiciously clean report.
+**Making sure the checks were actually meaningful, not just numerous.** It's easy to write nine checks that all trivially pass and call it done. Instead, the framework was run against the real, uncleaned data — the results are a genuine mix of passes and failures (6/9, 3/9, 6/9 across the three datasets), with specific real failures, not a report tuned to look clean.
 
 ## 9. Data Quality, Reliability, Security & Performance
 

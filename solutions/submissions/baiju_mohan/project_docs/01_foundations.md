@@ -2,25 +2,25 @@
 
 ## 1. Executive Summary
 
-Presight runs a project management platform for enterprise and government clients. The project and employee exports had missing values, bad dates, and no history — if a salary changed six months ago, the export only ever shows today's value.
+Presight is a project management platform for enterprise and government clients. The project and employee data it exports has missing values, bad dates, and no history — if a salary changed six months ago, the export only ever shows today's value.
 
-I built the foundation layer: a vectorised Pandas cleaning pipeline for projects/employees, and an SCD Type 2 model for `dim_employee` — built in SQL, straight from the cleaned CSV plus a separate change-history file — that reconstructs salary/role history. Output: two clean datasets and a 2,232-row SCD2 table that passes every integrity check, which everything downstream builds on.
+This pillar builds the foundation layer: a Pandas pipeline that cleans the projects and employees data, and an SCD Type 2 model for `dim_employee` — built in SQL, from the cleaned employee data plus a separate salary/role change-history file — that reconstructs each employee's history. Output: two clean datasets and a 2,232-row table that passes every check run against it, which everything else in the project builds on.
 
 ## 2. Business Problem
 
-The exports were built for running the business, not analysing it. Two problems:
+The exports were built to run day-to-day operations, not to analyse the business. Two problems:
 
-**Data quality was quietly wrong.** 10 blank emails, 8 bad hire dates, 3 employees with salaries that didn't match their level. None of this shows up in the first 40 rows — I only found it by profiling full column distributions.
+**The data quality was wrong in ways that aren't obvious.** 10 blank emails, 8 bad hire dates, 3 employees with a salary that doesn't match their level. None of this shows up if you only look at the first 40 rows — it was only found by checking every column across the full file.
 
-**No history existed.** Finance/HR needed questions like "what was this manager earning when they approved this spend" answered, but the source was a single current-state snapshot. Overwrite-in-place HR exports destroy exactly that history.
+**There was no history.** Finance and HR needed to answer questions like "what was this manager earning when they approved this spend," but the source data only shows the current state. The HR export overwrites old values in place, so that history doesn't exist anywhere.
 
 ## 3. Project Scope
 
-**In scope:** cleaning `projects.csv` (500 rows) and `employees.csv` (1,000 rows), designing the 6-table star schema, building `dim_employee` as SCD2 from the current export plus a ~1,826-row change history file.
+**In scope:** cleaning `projects.csv` (500 rows) and `employees.csv` (1,000 rows); designing a 6-table star schema; building `dim_employee` with history, using the current employee data plus a ~1,826-row change-history file.
 
-**Out of scope:** loading transactions and the rest of the warehouse, business SQL, dashboards, Spark/Kafka/Airflow — later pillars.
+**Out of scope:** loading transactions and the rest of the warehouse, the business SQL questions, dashboards, Spark/Kafka/Airflow — all covered in later pillars.
 
-**Constraint:** the history file covers ~60% of employees and only tracks salary/role/level — not department or manager moves. The SCD2 model is honest about that limit rather than implying more history than exists.
+**A real limit worth stating plainly:** the history file only covers about 60% of employees, and only tracks salary/role/level — not department or manager changes. This is stated directly rather than implying the history is more complete than it is.
 
 ## 4. Technology Stack
 
@@ -84,13 +84,13 @@ Owned this layer end to end — profiled the raw data myself, wrote the cleaning
 
 **Documented what SCD2 can't track.** History only covers salary/role/level, not department or manager. Every other attribute carries forward from the current snapshot, and that's stated directly rather than implied away.
 
-## 8. Challenges & How I Solved Them
+## 8. Challenges & Fixes
 
-**A real data conflict.** One employee (`EMP0084`) had a history-file salary that didn't match the current export. Resolution rule: current export wins, documented — not left to chance based on load order.
+**A real conflict between two data sources.** One employee (`EMP0084`) had a salary in the history file that didn't match the current employee export. Rule: the current export wins, and this is written down as a decision, not left to whichever file happened to load first.
 
-**Hire date + no history, together.** Fixing 8 garbage `hire_date` values (Task 1.3) meant some of those employees also had no salary history, so SCD2 had nothing to set `valid_from` to. Used a documented sentinel (`1900-01-01`) rather than leave it null and break the overlap-check query.
+**Missing hire date and missing history, together.** Fixing 8 broken `hire_date` values in Task 1.3 meant some of those same employees also had no salary history — so there was nothing to set their starting record date from. Used a fixed placeholder date (`1900-01-01`) instead of leaving it blank, since a blank value would have broken the check that looks for overlapping date ranges.
 
-**A `np.select` bug that only showed up in a different environment.** Ran fine locally, broke inside the Airflow container (Pillar 3) because its older pandas/numpy handles nullable-boolean arrays differently. Fixed with an explicit `.to_numpy(dtype=bool)` cast.
+**A calculation that only broke in a different environment.** Ran fine locally, but failed inside the Airflow container (Pillar 3) because that container has an older version of pandas/numpy that handles a certain data type differently. Fixed by converting the value to a plain type before using it.
 
 ## 9. Data Quality, Reliability, Security & Performance
 

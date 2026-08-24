@@ -2,23 +2,21 @@
 
 ## 1. Executive Summary
 
-Presight's platform emits a continuous event stream — logins, escalations, uploads. At 100,000 events across 12 monthly files, the pandas approach from earlier pillars stopped being the right tool.
+Presight's platform produces a continuous stream of events — logins, escalations, file uploads. At 100,000 events across 12 monthly files, the Pandas approach used in the earlier pillars was no longer the right tool for this volume.
 
-I built a PySpark pipeline turning the event stream into five analytics tables, a Kafka producer/consumer simulating real-time ingestion with severity routing, and an Airflow DAG orchestrating the whole pipeline daily with a data-quality gate I proved actually blocks on failure. Every piece ran against real infrastructure — a live Kafka broker, an actual Airflow container — which is how I caught four bugs a local-only review would have missed.
+This pillar builds a PySpark pipeline that turns the event stream into five summary tables, a Kafka producer/consumer that simulates real-time ingestion with severity-based routing, and an Airflow pipeline that runs the whole thing daily with a data-quality gate — tested directly to confirm it actually blocks bad data instead of just assuming the code works. Every part ran against real infrastructure — a live Kafka broker, an actual Airflow container — which is how four bugs described below were actually found.
 
 ## 2. Business Problem
 
-Two problems. Immediate: nobody could query the event stream — which projects escalate most, when usage peaks, how long escalations stay open. Forward-looking: the pandas pipeline had no path to real-time, ran manually, with no schedule and no protection against loading bad data.
-
-Data engineering needed the batch analytics; the platform needed a proven streaming pattern; the team needed the pipeline to stop being something someone had to remember to run.
+Two problems. The immediate one: nobody could query the event stream to answer questions like which projects have the most escalations, when usage peaks, or how long escalations stay open. The longer-term one: the existing Pandas pipeline had no path to real-time processing, ran only when someone remembered to run it manually, and had no schedule or protection against loading bad data.
 
 ## 3. Project Scope
 
-**In scope:** Spark batch processing of all 12 files into five tables; a Kafka producer/consumer with critical-escalation forwarding; an Airflow DAG (extract → DQ gate → transform → load → report) on a daily schedule.
+**In scope:** Spark batch processing of all 12 files into five summary tables; a Kafka producer/consumer that forwards critical escalations to their own topic; an Airflow pipeline (extract → data-quality check → clean → load → report) on a daily schedule.
 
-**Out of scope:** a multi-node Spark cluster (100K rows doesn't need it — the point was proving pipeline logic); Spark Structured Streaming (this is a batch producer/consumer simulation); a production Kafka deployment (single local broker).
+**Out of scope:** a multi-node Spark cluster — 100,000 rows doesn't need one, and the goal was to prove the pipeline logic works, not to run it at production scale; Spark Structured Streaming — this is a batch producer/consumer simulation, not true streaming; a production Kafka deployment — a single local broker is used instead.
 
-**Constraint:** local Windows development — PySpark's file-globbing needs Hadoop's native libraries, which don't come with `pip install pyspark`.
+**A practical constraint:** developed on Windows, where PySpark needs Hadoop's native libraries to read files — these don't come with `pip install pyspark` and had to be installed separately.
 
 ## 4. Technology Stack
 
@@ -80,15 +78,15 @@ Built all three components — Spark pipeline, Kafka producer/consumer, and the 
 
 **DAG dependencies deployed as sibling modules, not a package.** Airflow puts `dags/` on `sys.path`, so copying `etl_pipeline.py`/`etl_full.py`/`dq_framework.py` alongside the DAG lets it `import etl_pipeline` directly — no packaging step.
 
-## 8. Challenges & How I Solved Them
+## 8. Challenges & Fixes
 
-**PySpark couldn't read files at all on Windows.** First run failed with `UnsatisfiedLinkError` — Spark's file listing needs Hadoop's Windows-native I/O layer, which `pip install pyspark` doesn't ship. Installed Java 17, fetched the matching Hadoop 3.3.5 native binaries, wired `HADOOP_HOME`.
+**PySpark couldn't read any files on Windows at first.** The first run failed with `UnsatisfiedLinkError` — Spark needs Hadoop's Windows-native file-handling library to list files, and `pip install pyspark` doesn't include it. Fixed by installing Java 17 and the matching Hadoop 3.3.5 native binaries, and pointing `HADOOP_HOME` at them.
 
-**A silent bug in escalation pairing.** My first version paired the Nth "raised" with the Nth "resolved" event per project — correct only if they perfectly alternate, which they don't when a project has multiple escalations open at once. Result: resolution times as negative as -7,708 hours. Found by checking the actual output, not by trusting a clean run. Fixed with a validity guard: any pair where `resolved_at <= raised_at` is reported unresolved instead.
+**A silent bug in matching escalations.** The first version matched the 1st "raised" event with the 1st "resolved" event, the 2nd with the 2nd, and so on, per project. This only works if they alternate perfectly, which isn't true when a project has more than one escalation open at the same time. Result: resolution times as long as -7,708 hours, which is impossible. Found by checking the actual output, not by assuming a clean-looking run meant it worked. First fix: skip any pair where the resolved time is before the raised time.
 
-**A Kafka bug that only showed up ~5,700 messages in.** The escalation-forwarding branch pre-encoded key/value to bytes, then handed them to a producer with its own serializer already configured — double encoding, threw `AttributeError` the first time a Critical escalation needed forwarding. A smoke test would never catch this; only a full run against a live broker did.
+**A Kafka bug that only appeared partway through a run.** Around message 5,700 of 8,333, forwarding a Critical escalation started throwing an error. The code was encoding the message to bytes manually, then also handing it to a producer that already had its own encoding configured — double encoding. A short test wouldn't have caught this; only a full run against a live broker did.
 
-**Proved the DQ gate actually blocks.** Didn't just trust the `raise ValueError`. Set the threshold to an impossible value, watched the gate fail and downstream tasks never run, then reverted and confirmed a clean run.
+**Testing that the data-quality check actually blocks bad data.** Rather than just trust that the check would work as written, it was tested directly: set the threshold to an impossible value, confirmed the pipeline stopped and nothing downstream ran, then set it back and confirmed a normal run still passes.
 
 ## 9. Data Quality, Reliability, Security & Performance
 

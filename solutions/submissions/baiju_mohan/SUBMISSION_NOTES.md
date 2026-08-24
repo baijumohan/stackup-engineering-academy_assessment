@@ -339,20 +339,20 @@ File: `04_infrastructure/dq_framework.py` — used by the Airflow quality check 
 
 **Reported honest results over convenient ones.** The query-optimisation exercise found no measurable DuckDB speedup, and I said so with the evidence. The zero-row business questions were verified against raw distributions, not assumed to be bugs. The DQ framework ran against real uncleaned data so its results would be genuine. When the real result wasn't the impressive one, I reported the real result.
 
-## 9. Challenges & How I Solved Them
+## 9. Challenges & Fixes
 
-Four bugs, none visible from reading the code — all found by actually running the pipeline against real data and infrastructure:
+Four bugs found this way, none visible just from reading the code — only found by actually running the pipeline against real data and real infrastructure:
 
-- **A `np.select` call that broke only inside the Airflow container** — older pandas/numpy handled a nullable-boolean array differently. Found by running the DAG in the real container. *(Pillar 3)*
-- **Negative escalation resolution times, down to -7,708 hours** — a positional pairing assumption broke when escalations weren't perfectly alternating. Found by checking actual output, not by trusting a clean run. *(Pillar 3)*
-- **A Kafka double-serialization bug ~5,700 messages into a live run** — invisible to a smoke test, only caught by a full producer/consumer cycle against a real broker. *(Pillar 3)*
-- **An SCD2 edge case at the intersection of two fixes** — employees with both an unparseable hire date and no salary history hit a path with nothing to set `valid_from` to. *(Pillar 1)*
+- **A calculation broke only inside the Airflow container, not on my machine.** The container has an older version of pandas/numpy that handles a certain data type differently, and a line using `np.select` failed there. Found by running the pipeline inside the actual container. *(Pillar 3)*
+- **Some escalations showed a resolution time of -7,708 hours, which is impossible.** This happened because the code matched "raised" and "resolved" events by their position in a list, which only works if they alternate perfectly — not always true. Found by checking the actual output, not by assuming a run that didn't error was correct. *(Pillar 3)*
+- **A Kafka bug only showed up partway through a run** (around message 5,700 of 8,333) — messages were being encoded twice before being sent. A short test would not have caught this; it only appeared during a full run against a real Kafka broker. *(Pillar 3)*
+- **A small group of employees had no hire date and no salary history at the same time.** Both of those values are normally used to work out an employee's starting record date, so there was nothing to fall back on for this group. *(Pillar 1)*
 
-Also worth naming: rather than trust the DQ gate's `raise ValueError`, I forced an impossible threshold, watched the gate fail and downstream tasks never run, then reverted and confirmed a clean run. Writing a check and proving it works are different things.
+**Testing that a safety check actually works, not just trusting it.** The Airflow data-quality gate is supposed to stop the pipeline if data quality drops too low. Rather than assume this worked because the code looked right, it was tested directly: set an impossible threshold, confirmed the pipeline actually stopped and nothing downstream ran, then set it back and confirmed a normal run still passes.
 
-**A "fixed" bug that wasn't fully fixed.** The escalation-log guard above stopped negative durations, but I later found it was discarding 62% of escalations as "unresolved" rather than correctly matching them — the positional pairing itself was still wrong, the guard just hid the symptom. Replaced it with real temporal matching (each resolution claims the earliest still-open raise before it): correctly-resolved escalations went from 748 to 1,098, still zero negative durations. *(Pillar 3)*
+**A first fix that only hid the problem.** The fix for the -7,708-hours bug above stopped the impossible numbers, but it did this by throwing out any pair it couldn't match cleanly — which turned out to be 62% of all escalations, marked "unresolved" when they weren't. The underlying matching logic was still wrong; the fix just hid the symptom instead of fixing it. Replaced it with matching by time instead of position: correctly-matched escalations went from 748 to 1,098, with still zero negative durations. *(Pillar 3)*
 
-**Two DQ framework gaps found by comparing against another trainee's independent solution**, not by re-reading my own code: `employees.manager_id` had no referential-integrity check against `employees.employee_id` (a legitimate self-referential FK), and the consistency check never actually verified salary-against-level despite the task naming that exact example. Fixed both — the self-reference surfaced a real, previously invisible issue (5 employees with a `manager_id` that doesn't resolve). *(Pillar 4)*
+**Two gaps found by comparing against another trainee's independent solution**, not by re-reading my own code: there was no check that `employees.manager_id` actually points to a real employee, and the consistency check never verified salary against level even though the task description used that exact example. Both were fixed — the manager_id check found a real issue: 5 employees have a manager_id that doesn't match anyone. *(Pillar 4)*
 
 ## 10. Data Quality, Reliability, Security & Performance
 
