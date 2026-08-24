@@ -151,7 +151,7 @@ flowchart LR
         SCD --> WH
         txnRaw -->|enrich_transactions| txnClean[(transactions_clean.csv)]
         txnClean --> WH
-        WH --> BI[Power BI / dashboard mockup]
+        WH --> BI[Power BI executive dashboard]
     end
 
     subgraph Pillar3["Pillar 3 — Big Data (Spark/Kafka)"]

@@ -4,12 +4,66 @@
 
 > Master project story for interview walkthroughs. Each pillar has its own
 > deeper write-up, same structure:
-> [Foundations](interview_docs/01_foundations.md) ·
-> [SQL & Visualization](interview_docs/02_sql_and_visualization.md) ·
-> [Big Data Processing](interview_docs/03_big_data_processing.md) ·
-> [Infrastructure & Governance](interview_docs/04_infrastructure_and_governance.md)
+> [Foundations](project_docs/01_foundations.md) ·
+> [SQL & Visualization](project_docs/02_sql_and_visualization.md) ·
+> [Big Data Processing](project_docs/03_big_data_processing.md) ·
+> [Infrastructure & Governance](project_docs/04_infrastructure_and_governance.md)
 >
 > To actually run the code: [HOW_TO_RUN.md](HOW_TO_RUN.md).
+
+---
+
+## Repository Layout
+
+```
+solutions/submissions/baiju_mohan/
+├── 01_foundations/
+│   ├── etl_pipeline.py              # Tasks 1.1, 1.3 (imported by Pillar 2/3/4, not duplicated)
+│   ├── data_model.sql               # Task 1.2 — star schema DDL + SCD2 build + validation (Sections 1-2)
+│   ├── ASSUMPTIONS.md
+│   ├── VALIDATION_EVIDENCE.md
+│   └── README.md
+├── 02_sql_and_viz/
+│   ├── etl_full.py                  # Task 2.2 — canonical ETL; Airflow + Docker both run this exact file
+│   ├── queries.sql                  # Task 2.1 — six business questions
+│   ├── query_optimization.sql       # Task 2.3 — original/rewrite/indexes/benchmark, self-contained
+│   ├── export_dashboard_data.sql    # Task 2.4 support — documented, not the dashboard's actual data source
+│   ├── run_queries.py, run_optimization.py  # drivers that execute the .sql files and print real output
+│   ├── warehouse_explorer.ipynb     # live query exploration
+│   └── README.md
+├── 03_big_data/
+│   ├── spark_pipeline.py            # Task 3.1
+│   ├── kafka_streaming.py           # Task 3.2
+│   ├── airflow_dag.py               # Task 3.3 — imports Pillar 1/2/4 modules, doesn't duplicate them
+│   ├── deploy_dag.ps1               # copies the DAG + imports into the Airflow containers
+│   ├── big_data_explorer.ipynb      # live Spark/Kafka output exploration
+│   └── README.md
+├── 04_infrastructure/
+│   ├── data_governance.md           # Task 4.2
+│   ├── dq_framework.py              # Task 4.3 — imported by the Airflow DQ gate
+│   └── README.md
+├── project_docs/                    # deeper per-pillar write-ups (linked above)
+├── HOW_TO_RUN.md
+└── SUBMISSION_NOTES.md              # this file
+
+# Dockerfile/.dockerignore live at the repo root, not in 04_infrastructure/ —
+# tasks/04_infrastructure/INSTRUCTIONS.md requires it there (build context
+# needs solutions/ and datasets/, siblings of 04_infrastructure/, not children).
+```
+
+## Output Layout
+
+Every artifact has **one** canonical location.
+
+| Artifact | Path |
+|---|---|
+| `projects_clean.csv`, `employees_clean.csv`, `employees_quality_summary.json` | `outputs/results/baiju_mohan/01_foundations/` |
+| Star schema + `dim_employee` (SCD2) | `outputs/presight_warehouse.duckdb` — single shared file, not namespaced per pillar |
+| `transactions_clean.csv`, `pipeline_summary.txt`, `presight_dashboard.pbix` | `outputs/results/baiju_mohan/02_sql_and_viz/` |
+| Spark's 5 Parquet tables | `outputs/artifacts/baiju_mohan/03_big_data/spark/` — **gitignored**, regenerable binary build output |
+| Kafka `summary.json` | `outputs/results/baiju_mohan/03_big_data/kafka/` |
+| Airflow `pipeline_report_<date>.txt` | `outputs/results/baiju_mohan/03_big_data/` |
+| `data_governance_document.md`, `dq_report_*.md` | `outputs/results/baiju_mohan/04_infrastructure/` |
 
 ---
 
@@ -45,7 +99,7 @@ Underneath all three: the pipeline only ran manually, with no schedule, no quali
 
 **In scope:** the full pipeline from raw export to governed, scheduled warehouse — cleaning and DQ detection, dimensional modeling with real SCD2, six business questions plus a measured query-optimisation exercise, an executive dashboard, Spark batch processing, Kafka ingestion, Airflow orchestration with a quality gate, containerisation, and governance documentation.
 
-**Out of scope:** a multi-node Spark cluster or production Kafka deployment (scoped to prove pipeline logic, not cluster ops); a live Power BI connection (a data-accurate PDF mockup instead); cloud deployment (the env-var configuration makes that step straightforward later); final legal sign-off on retention periods (defensible defaults, flagged for review).
+**Out of scope:** a multi-node Spark cluster or production Kafka deployment (scoped to prove pipeline logic, not cluster ops); cloud deployment (the env-var configuration makes that step straightforward later); final legal sign-off on retention periods (defensible defaults, flagged for review).
 
 **Scale:** 500 projects, 1,000 employees, ~1,800 salary-history records, 50,000 transactions, 100,000 platform events across 12 files — large enough that vectorisation, indexing, and partitioning decisions have measurable consequences.
 
@@ -151,7 +205,7 @@ Also worth naming: rather than trust the DQ gate's `raise ValueError`, I forced 
 
 **Security**: every PII column tagged with GDPR/UAE PDPL, access control on least privilege — including narrower Data Engineer access to salary history than the "engineers need broad access" instinct suggests.
 
-**Performance**: 0.63s for the transactions ETL, 93.3s for Spark across 99,996 events, 16.8s for the full Docker lifecycle — all measured by actually running the thing.
+**Performance**: 0.84s for the transactions ETL, 114.7s for Spark across 99,996 events, 11.1s for the full Docker lifecycle — all measured by actually running the thing.
 
 ## 10. Outcome & Business Value
 
@@ -169,3 +223,23 @@ More than any single number: every claim here is something I watched happen agai
 2. The query-optimisation exercise shows no measurable speedup on DuckDB at 50K rows; documented why, and where it'd matter at production Postgres scale.
 3. Retention periods in the governance doc are defensible defaults pending Legal sign-off, not verified legal citations.
 4. `bridge_employee_project` only captures the guaranteed manager↔project edge in the source data; documented in `data_model.sql`.
+
+---
+
+## Completion Status
+
+| Pillar | Task | Status |
+|---|---|---|
+| 1 | 1.1 — Clean/transform projects | Complete |
+| 1 | 1.2 — Star schema + SCD2 `dim_employee` | Complete |
+| 1 | 1.3 — Employee DQ detection/fixes | Complete |
+| 2 | 2.1 — Six SQL business questions | Complete |
+| 2 | 2.2 — Full ETL (50K transactions, <30s) | Complete |
+| 2 | 2.3 — Query optimisation with real benchmarks | Complete |
+| 2 | 2.4 — Power BI dashboard | Complete |
+| 3 | 3.1 — Spark pipeline (5 Parquet tables) | Complete |
+| 3 | 3.2 — Kafka producer/consumer + escalation forwarding | Complete |
+| 3 | 3.3 — Airflow DAG with DQ gate + XCom reporting | Complete |
+| 4 | 4.1 — Docker containerisation | Complete |
+| 4 | 4.2 — Data governance document | Complete |
+| 4 | 4.3 — Configurable DQ framework (9 checks) | Complete |
