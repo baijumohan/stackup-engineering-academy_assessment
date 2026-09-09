@@ -16,6 +16,18 @@
 -- Substitute __RESULTS__ with the real outputs path and run in any SQL
 -- client, or via run_optimization.py (does the substitution + benchmarks).
 --
+-- Running the setup block below as-is (with the literal __RESULTS__
+-- placeholder) fails with: IO Error: No files found that match the
+-- pattern "__RESULTS__/employees_clean.csv" — it's not a real path.
+-- On this machine, __RESULTS__ resolves to:
+--   C:/Users/baiju.mohanan/OneDrive - Presight AI/Desktop/stackup engineering academy/project/outputs/results/baiju_mohan/02_sql_and_viz
+-- so to run manually in a SQL client, replace the setup block below with:
+--   CREATE OR REPLACE TABLE employees AS SELECT * FROM read_csv_auto('C:/Users/baiju.mohanan/OneDrive - Presight AI/Desktop/stackup engineering academy/project/outputs/results/baiju_mohan/02_sql_and_viz/employees_clean.csv');
+--   CREATE OR REPLACE TABLE projects AS SELECT * FROM read_csv_auto('C:/Users/baiju.mohanan/OneDrive - Presight AI/Desktop/stackup engineering academy/project/outputs/results/baiju_mohan/02_sql_and_viz/projects_clean.csv');
+--   CREATE OR REPLACE TABLE transactions AS SELECT * FROM read_csv_auto('C:/Users/baiju.mohanan/OneDrive - Presight AI/Desktop/stackup engineering academy/project/outputs/results/baiju_mohan/02_sql_and_viz/transactions_clean.csv');
+-- (forward slashes even on Windows — DuckDB expects them.) Simpler: just
+-- run run_optimization.py, which substitutes this automatically.
+--
 -- RESULT SUMMARY: at this scale (1,000 employees / 500 projects / 50,000
 -- transactions), original and rewritten both run ~6-7ms on DuckDB — no
 -- 10x+ speedup here. See 4a for why, and 4c for where it'd matter.

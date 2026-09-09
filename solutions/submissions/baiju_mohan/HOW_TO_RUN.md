@@ -91,12 +91,12 @@ already on PATH — add that folder to PATH, or call it by full path.)
 
 **Check it worked:** the last few statements in Section 1 *are* the
 validation queries — watch their output directly. Q1 (duplicate current),
-Q3 (overlaps) should return 0 rows; Q4 should show matching
+Q3 (overlaps), Q5 (gaps) should return 0 rows; Q4 should show matching
 `actual_rows`/`expected_rows`. Or query it yourself:
 ```
 duckdb outputs\presight_warehouse.duckdb -readonly -c "SELECT COUNT(*) FROM dim_employee;"
 ```
-Expect `2232`.
+Expect `2231`.
 
 See [01_foundations/ASSUMPTIONS.md](01_foundations/ASSUMPTIONS.md) and
 [01_foundations/VALIDATION_EVIDENCE.md](01_foundations/VALIDATION_EVIDENCE.md)

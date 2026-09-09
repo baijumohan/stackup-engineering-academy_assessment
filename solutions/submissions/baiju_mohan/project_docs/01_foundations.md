@@ -4,7 +4,7 @@
 
 Presight is a project management platform for enterprise and government clients. The project and employee data it exports has missing values, bad dates, and no history — if a salary changed six months ago, the export only ever shows today's value.
 
-This pillar builds the foundation layer: a Pandas pipeline that cleans the projects and employees data, and an SCD Type 2 model for `dim_employee` — built in SQL, from the cleaned employee data plus a separate salary/role change-history file — that reconstructs each employee's history. Output: two clean datasets and a 2,232-row table that passes every check run against it, which everything else in the project builds on.
+This pillar builds the foundation layer: a Pandas pipeline that cleans the projects and employees data, and an SCD Type 2 model for `dim_employee` — built in SQL, from the cleaned employee data plus a separate salary/role change-history file — that reconstructs each employee's history. Output: two clean datasets and a 2,231-row table that passes every check run against it, which everything else in the project builds on.
 
 ## 2. Business Problem
 
@@ -59,9 +59,9 @@ flowchart TD
     EC --> SCD
     H --> SCD
     DDL --> SCD
-    SCD --> DIM[("dim_employee\n2,232 versions, in-warehouse")]
+    SCD --> DIM[("dim_employee\n2,231 versions, in-warehouse")]
     DIM --> Q
-    Q --> Result["0 duplicate-current rows\n0 overlapping periods\nmax 5 versions/employee"]
+    Q --> Result["0 duplicate-current rows\n0 overlapping periods\n0 gaps\nmax 5 versions/employee"]
 
     PC -.feeds.-> P2["Pillar 2: warehouse + dashboards"]
     EC -.feeds.-> P2
@@ -82,7 +82,9 @@ Cleaning is a straight line: load, detect, fix, write. The SCD2 build lives enti
 
 ## 7. Challenges & Fixes
 
-**A real conflict between two data sources.** One employee (`EMP0084`) had a salary in the history file that didn't match the current employee export. Rule: the current export wins, and this is written down as a decision, not left to whichever file happened to load first.
+**A real conflict between two data sources.** Two employees (`EMP0356`, `EMP0900`) had a salary in the history file that didn't match the current employee export. Rule: the current export wins, and this is written down as a decision, not left to whichever file happened to load first.
+
+**A same-day duplicate that broke the SCD2 interval math.** One employee (`EMP0084`) had two salary changes dated the exact same day. `valid_to` is computed as the next version's `valid_from` minus one day — with two versions sharing one `valid_from`, that produced a version with `valid_to` *before* `valid_from`. The overlap-check validation query couldn't catch it (it assumes `valid_to >= valid_from`); only the gap-check query could. This had actually been misdiagnosed once already, as the unrelated conflict above — re-tracing it while capturing real validation output for a presentation found the actual cause. Fixed by collapsing same-day history rows to their final state before building versions.
 
 **Missing hire date and missing history, together.** Fixing 8 broken `hire_date` values in Task 1.3 meant some of those same employees also had no salary history — so there was nothing to set their starting record date from. Used a fixed placeholder date (`1900-01-01`) instead of leaving it blank, since a blank value would have broken the check that looks for overlapping date ranges.
 

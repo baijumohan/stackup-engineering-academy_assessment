@@ -207,9 +207,9 @@ File: `01_foundations/etl_pipeline.py` → `load_projects()` + `transform_projec
 File: `01_foundations/data_model.sql` (Section 1)
 
 - **What was done:** Designed a 6-table star schema (`fact_transactions`, `dim_project`, `dim_employee`, `dim_vendor`, `dim_date`, `bridge_employee_project`). Built `dim_employee` directly in SQL by combining the current employee data with the ~1,826-row salary-history file, using window functions to work out when each version of an employee's record started and ended. Ran 5 validation queries straight after the build.
-- **Decisions:** Only `role`/`level`/`salary` are tracked as history — the history file doesn't have anything else to track. Where the history file disagrees with the current employee data (one case, `EMP0084`), the current data wins. 8 employees have no salary history and also had their `hire_date` removed in Task 1.3 as unrecoverable — these get a fixed placeholder date (`1900-01-01`) instead of a blank value, so the validation queries don't break on it.
-- **Output:** `dim_employee` — 2,232 rows (versions) in `outputs/presight_warehouse.duckdb`. 0 duplicate "current" rows, 0 overlapping date ranges.
-- **Observations:** Only one real conflict was found between the history file and the current data (`EMP0084`) — resolving it by trusting the current export, and writing that decision down, was simpler than guessing which source was right.
+- **Decisions:** Only `role`/`level`/`salary` are tracked as history — the history file doesn't have anything else to track. Where the history file disagrees with the current employee data (`EMP0356`, `EMP0900`), the current data wins. 8 employees have no salary history and also had their `hire_date` removed in Task 1.3 as unrecoverable — these get a fixed placeholder date (`1900-01-01`) instead of a blank value, so the validation queries don't break on it. Same-day duplicate history events (one employee, two changes dated the same day) are collapsed to their terminal state before versioning — otherwise the interval math produces a version with `valid_to` before `valid_from`.
+- **Output:** `dim_employee` — 2,231 rows (versions) in `outputs/presight_warehouse.duckdb`. 0 duplicate "current" rows, 0 overlapping date ranges, 0 gaps.
+- **Observations:** A couple of real conflicts exist between the history file and the current data (`EMP0356`, `EMP0900`) — resolving them by trusting the current export, and writing that decision down, was simpler than guessing which source was right. A third apparent conflict (`EMP0084`) turned out to be a build bug, not a real data conflict — see Section 8.
 
 **Task 1.3 — Employee data quality (`clean_employees()`)**
 File: `01_foundations/etl_pipeline.py`
@@ -337,12 +337,13 @@ File: `04_infrastructure/dq_framework.py` — used by the Airflow quality check 
 
 ## 8. Challenges & Fixes
 
-Four bugs found this way, none visible just from reading the code — only found by actually running the pipeline against real data and real infrastructure:
+Five bugs found this way, none visible just from reading the code — only found by actually running the pipeline against real data and real infrastructure:
 
 - **A calculation broke only inside the Airflow container, not on my machine.** The container has an older version of pandas/numpy that handles a certain data type differently, and a line using `np.select` failed there. Found by running the pipeline inside the actual container. *(Pillar 3)*
 - **Some escalations showed a resolution time of -7,708 hours, which is impossible.** This happened because the code matched "raised" and "resolved" events by their position in a list, which only works if they alternate perfectly — not always true. Found by checking the actual output, not by assuming a run that didn't error was correct. *(Pillar 3)*
 - **A Kafka bug only showed up partway through a run** (around message 5,700 of 8,333) — messages were being encoded twice before being sent. A short test would not have caught this; it only appeared during a full run against a real Kafka broker. *(Pillar 3)*
 - **A small group of employees had no hire date and no salary history at the same time.** Both of those values are normally used to work out an employee's starting record date, so there was nothing to fall back on for this group. *(Pillar 1)*
+- **`dim_employee`'s gap-check validation query (Q5) returned a real non-zero row, not the expected 0.** One employee (`EMP0084`) had two salary-history events dated the exact same day. The SCD2 build computes `valid_to` as the next version's `valid_from` minus one day — with two versions sharing one `valid_from`, that arithmetic produced an inverted interval (`valid_to` one day *before* `valid_from`) for the earlier one. The overlap check (Q3) couldn't catch it — it assumes `valid_to >= valid_from` for a valid interval — only the gap check could. This had also been silently mischaracterized in `VALIDATION_EVIDENCE.md` as an unrelated, already-documented data conflict, until re-tracing it while capturing real validation output. Fixed by collapsing same-day history rows to their terminal state via the `previous_salary`/`new_salary` chain before building versions. *(Pillar 1)*
 
 **Testing that a safety check actually works, not just trusting it.** The Airflow data-quality gate is supposed to stop the pipeline if data quality drops too low. Rather than assume this worked because the code looked right, it was tested directly: set an impossible threshold, confirmed the pipeline actually stopped and nothing downstream ran, then set it back and confirmed a normal run still passes.
 
@@ -376,7 +377,7 @@ More than any single number: every claim here is something I watched happen agai
 2. Unparseable/implausible dates are set to null, never guessed or defaulted to today.
 3. Salary outliers are winsorised (capped to the level's p95), not just flagged — chosen because salary feeds directly into Q6 and the SCD2 build, so an uncorrected outlier would propagate.
 4. `dim_employee`'s SCD2 history only versions `role`/`level`/`salary`, because that's all `employees_salary_history.csv` actually tracks — every other attribute carries forward from the current snapshot, documented as a scope limit rather than implied away.
-5. Where the salary-history file conflicts with `employees_clean.csv` (one case, `EMP0084`), the clean CSV wins as the authoritative current-state export.
+5. Where the salary-history file conflicts with `employees_clean.csv` (`EMP0356`, `EMP0900`), the clean CSV wins as the authoritative current-state export.
 6. DQ thresholds (80% key-column completeness for the Airflow gate, 30% dominance for the distribution check, etc.) use the assessment's own reasonable defaults, not a client-specific SLA.
 7. Retention periods in the governance doc are defensible defaults pending Legal sign-off, not verified legal citations.
 8. Out of scope by design: a multi-node Spark cluster, a production Kafka deployment, and cloud deployment — the env-var configuration makes that last step straightforward later, not a rewrite.
