@@ -1,6 +1,6 @@
 Presight ETL Pipeline — Run Summary
 ==================================================
-Run timestamp:        2026-08-24T12:08:26.258211
+Run timestamp:        2026-09-09T07:14:04.613415
 Pipeline elapsed time: 0.00 seconds
 
 Row counts (before -> after cleaning):

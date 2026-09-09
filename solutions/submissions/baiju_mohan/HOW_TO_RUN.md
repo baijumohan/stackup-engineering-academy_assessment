@@ -26,11 +26,11 @@ file also says how to check it actually worked.
 
 ## Credentials
 
-| Service | URL | Username | Password |
-|---|---|---|---|
-| Airflow UI | http://localhost:8081 | `admin` | `admin` |
-| Kafka UI | http://localhost:8080 | — (none) | — |
-| PostgreSQL (Airflow's metadata DB) | `localhost:5432` | `presight` | `presight123` |
+| Service                            | URL                   | Username   | Password      |
+| ---------------------------------- | --------------------- | ---------- | ------------- |
+| Airflow UI                         | http://localhost:8081 | `admin`    | `admin`       |
+| Kafka UI                           | http://localhost:8080 | — (none)   | —             |
+| PostgreSQL (Airflow's metadata DB) | `localhost:5432`      | `presight` | `presight123` |
 
 All defined in `docker-compose.yml` — only relevant if you're inspecting
 services directly rather than through the pipeline scripts.
@@ -79,6 +79,13 @@ twice in a row against the same file just rebuilds cleanly.
 duckdb outputs\presight_warehouse.duckdb
 .read solutions/submissions/baiju_mohan/01_foundations/data_model.sql
 ```
+**Expected trailing error:** `.read` executes the whole file, so it also
+reaches Section 2 (load), which uses an `__OUTPUTS__` path placeholder that
+only `run_queries.py` substitutes. You'll see `IO Error:
+__OUTPUTS__/projects_clean.csv not found` at the end — harmless. Section 1
+(the schema + SCD2 build + validation queries above) has already completed
+and printed its results by that point; Section 2 gets loaded correctly later
+by `run_queries.py` (Pillar 2, step below).
 (A DuckDB CLI build lives at `%LOCALAPPDATA%\duckdb-cli\duckdb.exe` if not
 already on PATH — add that folder to PATH, or call it by full path.)
 
@@ -153,7 +160,7 @@ Requires Step 0 (Docker services) above already running.
 — these don't persist between terminal sessions, set them each time or add
 to your profile):
 ```powershell
-$env:JAVA_HOME = "<path to your JDK 17 install>"
+$env:JAVA_HOME = "C:\Users\baiju.mohanan\AppData\Local\Programs\Eclipse Adoptium\jdk-17.0.20.8-hotspot"
 $env:HADOOP_HOME = "C:\hadoop"                    # folder containing bin\winutils.exe + bin\hadoop.dll
 $env:Path = "$env:HADOOP_HOME\bin;$env:Path"
 $env:PYSPARK_PYTHON = "$PWD\.venv\Scripts\python.exe"        # pin driver+worker to the same interpreter

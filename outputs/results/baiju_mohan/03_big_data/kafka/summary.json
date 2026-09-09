@@ -1,8 +1,14 @@
 {
-  "run_at": "2026-08-24T07:56:34.693723+00:00",
+  "run_at": "2026-09-07T09:32:13.917675+00:00",
   "topic": "presight.project.events",
   "total_messages_consumed": 8333,
   "event_counts": {
+    "project_status_change": 648,
+    "document_uploaded": 524,
+    "meeting_scheduled": 333,
+    "task_completed": 849,
+    "escalation_raised": 178,
+    "approval_requested": 161,
     "login": 2121,
     "comment_added": 325,
     "budget_updated": 252,
@@ -11,15 +17,9 @@
     "task_created": 983,
     "logout": 1623,
     "escalation_resolved": 158,
-    "milestone_reached": 16,
-    "project_status_change": 648,
-    "document_uploaded": 524,
-    "meeting_scheduled": 333,
-    "task_completed": 849,
-    "escalation_raised": 178,
-    "approval_requested": 161
+    "milestone_reached": 16
   },
   "critical_escalations_forwarded": 14,
-  "elapsed_seconds": 14.22,
-  "throughput_messages_per_sec": 585.9
+  "elapsed_seconds": 13.8,
+  "throughput_messages_per_sec": 603.82
 }
