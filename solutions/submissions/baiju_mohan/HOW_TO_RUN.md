@@ -107,8 +107,9 @@ python solutions/submissions/baiju_mohan/02_sql_and_viz/run_optimization.py
 `run_queries.py` loads Section 2 of `data_model.sql` (remaining warehouse
 tables) and runs `queries.sql`'s six business questions, printing real
 result rows. `run_optimization.py` runs `query_optimization.sql`'s
-original/rewritten queries and prints the Task 2.3 EXPLAIN ANALYZE +
-benchmark output.
+original/rewritten queries against real PostgreSQL (the `presight-postgres`
+container — `docker-compose up -d postgres` first) and prints the Task 2.3
+EXPLAIN ANALYZE + benchmark output.
 
 **Check it worked:**
 ```
@@ -116,15 +117,24 @@ type outputs\results\baiju_mohan\02_sql_and_viz\pipeline_summary.txt
 ```
 Look for `Actual: <n>s (PASS)` — target is under 30 seconds.
 
-**Tool: DuckDB CLI (or any SQL client)** — all three `.sql` files
-(`01_foundations/data_model.sql`, `02_sql_and_viz/queries.sql`,
-`02_sql_and_viz/query_optimization.sql`) are plain runnable SQL; open any of
-them and run statements directly against the warehouse. `queries.sql` needs
-Section 2 already loaded first (via `run_queries.py` above, or manually).
-`query_optimization.sql` is fully self-contained — its own setup block loads
-plain `employees`/`projects`/`transactions` tables, just substitute
-`__RESULTS__` with the real `outputs/results/baiju_mohan/02_sql_and_viz` path
-first.
+**Tool: DuckDB CLI (or any SQL client)** — `01_foundations/data_model.sql`
+and `02_sql_and_viz/queries.sql` are plain runnable SQL; open either and run
+statements directly against the warehouse. `queries.sql` needs Section 2
+already loaded first (via `run_queries.py` above, or manually).
+
+**Tool: psql (or any Postgres client)** —
+`02_sql_and_viz/query_optimization.sql` runs against real PostgreSQL, not
+DuckDB — its own setup block creates plain `employees`/`projects`/
+`transactions` tables and loads them via `COPY`, which is server-side, so
+the CSVs need to exist inside the container first. `run_optimization.py`
+above does all of this automatically; to run it manually:
+```
+docker cp outputs/results/baiju_mohan/01_foundations/employees_clean.csv presight-postgres:/tmp/employees_clean.csv
+docker cp outputs/results/baiju_mohan/01_foundations/projects_clean.csv   presight-postgres:/tmp/projects_clean.csv
+docker cp outputs/results/baiju_mohan/02_sql_and_viz/transactions_clean.csv presight-postgres:/tmp/transactions_clean.csv
+docker exec presight-postgres psql -U presight -d postgres -c "CREATE DATABASE presight_practice;"
+docker exec -i presight-postgres psql -U presight -d presight_practice -f - < solutions/submissions/baiju_mohan/02_sql_and_viz/query_optimization.sql
+```
 
 **Tool: Jupyter notebook** — [warehouse_explorer.ipynb](02_sql_and_viz/warehouse_explorer.ipynb)
 gives the same warehouse a live, editable query surface with results

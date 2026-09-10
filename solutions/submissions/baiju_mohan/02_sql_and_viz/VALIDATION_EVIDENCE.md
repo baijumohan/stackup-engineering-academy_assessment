@@ -51,24 +51,29 @@ kept as-is rather than loosening the thresholds to force output.
 
 ## Task 2.3 — Query optimisation benchmark
 
-Best-of-5 timings, `EXPLAIN ANALYZE` captured for both the original and rewritten query:
+Runs against real PostgreSQL (the `presight-postgres` container), not DuckDB — first
+measured on DuckDB, which showed no real difference, then actually verified against a
+genuine row-store to check whether that held up. Best-of-5 timings, `EXPLAIN ANALYZE`
+captured for both the original and rewritten query:
 
 | Version | Rows | Best time (ms) |
 |---|---|---|
-| Original (unmodified starter query) | 923 | 6.03 |
-| Rewritten (explicit JOINs, subquery → CTE) | 923 | 5.86 |
-| Rewritten + indexes | 923 | 6.44 |
+| Original (unmodified starter query) | 923 | 12.73 |
+| Rewritten (explicit JOINs, subquery → CTE) | 923 | 10.99 |
+| Rewritten + indexes | 923 | 7.50 |
 
 Row-count match check: `923 == 923` — the rewrite is provably equivalent, not just faster.
 
-Speedup (best-of-5): **1.03x** — reported honestly rather than fabricated to hit the
-brief's 10x+ expectation. At this data volume DuckDB's own optimiser already rewrites the
-comma-join and resolves the subquery as uncorrelated, so both plans converge on the same
-sequential scan + hash join; the rewrite's value is readability and correctness-by-construction,
-not raw speed here. Where indexing/rewriting would show a measurable difference — a
-production Postgres deployment at 10-50M rows — is documented alongside the benchmark in
-`query_optimization.sql` itself.
+Speedup (best-of-5): **~1.7x** (varies ~1.7-2.0x run to run) — a real, repeatable
+improvement from the indexes, unlike the first pass on DuckDB (1.03x, noise-level). Why
+the difference: DuckDB is columnar with zone maps, so a sequential scan over one column is
+already cheap and an index adds nothing; Postgres is a row-store, so finding the ~18%
+`Pending` rows means either scanning every row or using a B-tree — `EXPLAIN ANALYZE`
+confirms the indexed plan replaces `Seq Scan ... Filter: payment_status='Pending'` with
+`Bitmap Index Scan on idx_transactions_status_project`. Full reasoning and the DuckDB
+comparison are documented alongside the benchmark in `query_optimization.sql` itself.
 
 ```powershell
+docker-compose up -d postgres   # presight-postgres must be running first
 python solutions/submissions/baiju_mohan/02_sql_and_viz/run_optimization.py
 ```

@@ -4,9 +4,9 @@
 
 - `etl_full.py` — Task 2.2. Full ETL: loads `transactions.json`, enriches with project/employee context, writes `transactions_clean.csv` + `pipeline_summary.txt`. This is the **canonical** ETL — `03_big_data/airflow_dag.py` and the repo-root `Dockerfile` both import/run this exact file, not a copy.
 - `queries.sql` — Task 2.1. The six business questions, standalone runnable SQL against the warehouse `01_foundations/data_model.sql` builds.
-- `query_optimization.sql` — Task 2.3. Original query, captured `EXPLAIN ANALYZE`, rewrite, indexes, and benchmark — fully self-contained (its own setup block loads the plain tables the starter query needs).
+- `query_optimization.sql` — Task 2.3. Original query, captured `EXPLAIN ANALYZE`, rewrite, indexes, and benchmark — runs against real PostgreSQL (not DuckDB, unlike the rest of this pillar), since the indexes showed nothing on DuckDB and needed verifying on a genuine row-store. Self-contained (its own setup block creates and loads the plain tables the starter query needs), but requires the `presight-postgres` container running.
 - `export_dashboard_data.sql` — supporting extract queries for the Power BI dashboard (Task 2.4). Not the dashboard's actual data source (Power BI connects directly to `projects_clean.csv`/`transactions_clean.csv`); kept as a documented alternative — see the file's own header for why it exists and why its numbers deliberately differ from `queries.sql`'s Q1/Q3.
-- `run_queries.py`, `run_optimization.py` — Python drivers that substitute path placeholders and execute the `.sql` files above, printing real captured output. Not required reading to understand the SQL itself — the `.sql` files are plain runnable SQL on their own.
+- `run_queries.py`, `run_optimization.py` — Python drivers that execute the `.sql` files above and print real captured output (`run_queries.py` substitutes path placeholders for DuckDB; `run_optimization.py` stages the CSVs into the Postgres container and benchmarks against it). Not required reading to understand the SQL itself — the `.sql` files are plain runnable SQL on their own.
 - `warehouse_explorer.ipynb` — Jupyter notebook for live, editable querying of the warehouse (results render as tables). A UI convenience on top of the same warehouse, not a separate data path.
 
 ## Outputs
