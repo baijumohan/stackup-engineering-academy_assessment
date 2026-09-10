@@ -175,3 +175,10 @@ CREATE INDEX idx_transactions_status_project ON transactions (payment_status, pr
 -- Where this WOULD show 10x+: production volume (10-50M rows, where the
 -- 4c indexes start mattering), or an engine that re-evaluates a
 -- correlated subquery per row — 4b's CTE stays fast either way.
+--
+-- This got tested for real, not just reasoned about: see
+-- query_optimization_postgres.sql, which runs the same original/rewritten/
+-- indexed queries against actual PostgreSQL (the presight-postgres
+-- container already in docker-compose.yml). There, the 4c indexes DO show
+-- a real ~2x speedup (12.8ms -> 6.4ms, best-of-5) — because Postgres is a
+-- row-store and DuckDB isn't.
