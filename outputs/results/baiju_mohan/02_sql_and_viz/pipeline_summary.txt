@@ -1,7 +1,7 @@
 Presight ETL Pipeline — Run Summary
 ==================================================
-Run timestamp:        2026-09-09T12:52:10.625829
-Pipeline elapsed time: 2.02 seconds
+Run timestamp:        2026-09-10T07:14:44.861434
+Pipeline elapsed time: 0.00 seconds
 
 Row counts (before -> after cleaning):
   projects:      500     -> 500
@@ -17,4 +17,4 @@ Data quality decisions made:
   - transactions.amount: 740 nulls kept as NaN in `amount`; amount_aed derives 0.0 for aggregation
   - transactions.approved_by: 2,444 nulls -> is_approved=False (no approver fabricated)
 
-Target: full pipeline (transactions load+enrich+write) in < 30 seconds. Actual: 2.02s (PASS)
+Target: full pipeline (transactions load+enrich+write) in < 30 seconds. Actual: 0.00s (PASS)

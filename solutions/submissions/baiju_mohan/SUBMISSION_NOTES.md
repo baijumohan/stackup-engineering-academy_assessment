@@ -259,9 +259,9 @@ File: `02_sql_and_viz/etl_full.py` — the same file Airflow and Docker both run
 **Task 2.3 — Query optimisation**
 File: `02_sql_and_viz/query_optimization.sql`
 
-- **What was done:** Ran the given slow query and captured its real execution plan and timing. Rewrote it with explicit joins and a CTE instead of a repeated subquery. Ran the new version and compared.
-- **Output:** both versions return the same 923 rows. Best times: 6.03ms before, 5.86ms after — about 1.03x faster.
-- **Observations:** The brief expected a much bigger speedup (10x+), and this result doesn't show one. Rather than present a better-looking number, the real one is reported along with why: at this data size, DuckDB's own query engine already optimises the "slow" pattern on its own. The rewrite's real value here is that it's easier to read and is proven to return the same result — not raw speed. Documented where the rewrite/indexes would matter more (a production database with 10-50 million rows).
+- **What was done:** Ran the given slow query and captured its real execution plan and timing. Rewrote it with explicit joins and a CTE instead of a repeated subquery. Ran the new version and compared — first on DuckDB, then, since the indexes showed nothing there, actually verified against real PostgreSQL too, rather than just reasoning about what "should" happen on a row-store.
+- **Output:** both versions return the same 923 rows on both engines. DuckDB: 6.03ms before, 5.86ms after indexing — about 1.03x, noise-level. PostgreSQL: 12.73ms before, 7.50ms after indexing — a real, repeatable ~1.7x.
+- **Observations:** The brief expected a much bigger speedup (10x+), and DuckDB alone didn't show one — at this data size, DuckDB's own query engine already optimises the "slow" pattern on its own, and its columnar zone maps make a B-tree index unnecessary. Rather than stop there, the same benchmark was run for real against PostgreSQL (a genuine row-store), which does show a measurable index benefit — `EXPLAIN ANALYZE` confirms real `Bitmap Index Scan` nodes replacing full sequential scans. Same SQL, same predicate, engine-dependent result — a more accurate finding than either "no speedup" or a fabricated 10x would have been alone.
 
 **Task 2.4 — Executive dashboard**
 - **What was done:** Built a dashboard in Power BI Desktop.
@@ -333,7 +333,7 @@ File: `04_infrastructure/dq_framework.py` — used by the Airflow quality check 
 
 **Environment-variable configuration, built once, reused twice.** `DATA_DIR`/`OUTPUT_DIR` read from the environment solved the Airflow container's different filesystem layout in Pillar 3 — then solved the same problem for free in Pillar 4's Docker container.
 
-**Reported honest results over convenient ones.** The query-optimisation exercise found no measurable DuckDB speedup, and I said so with the evidence. The zero-row business questions were verified against raw distributions, not assumed to be bugs. The DQ framework ran against real uncleaned data so its results would be genuine. When the real result wasn't the impressive one, I reported the real result.
+**Reported honest results over convenient ones.** The query-optimisation exercise found no measurable DuckDB speedup, and I said so with the evidence — then went further and actually verified the same benchmark against real PostgreSQL rather than just asserting "it would matter on a row-store," which did show a genuine ~1.7x speedup. The zero-row business questions were verified against raw distributions, not assumed to be bugs. The DQ framework ran against real uncleaned data so its results would be genuine. When the real result wasn't the impressive one, I reported the real result — and when it was worth checking on a different engine, I checked.
 
 ## 8. Challenges & Fixes
 
@@ -392,7 +392,7 @@ individually, so they're folded into each pillar's `project_docs/*.md` write-up 
 ## Known limitations (worth having ready if asked)
 
 1. Q2/Q3 in Pillar 2 return zero rows on this dataset — the checks are real and would fire where the condition occurs.
-2. The query-optimisation exercise shows no measurable speedup on DuckDB at 50K rows; documented why, and where it'd matter at production Postgres scale.
+2. The query-optimisation exercise showed no measurable speedup on DuckDB at 50K rows; verified against real PostgreSQL too, which does show a genuine ~1.7x speedup from the indexes — see `query_optimization.sql`.
 3. Retention periods in the governance doc are defensible defaults pending Legal sign-off, not verified legal citations.
 4. `bridge_employee_project` only captures the guaranteed manager↔project edge in the source data; documented in `data_model.sql`.
 
