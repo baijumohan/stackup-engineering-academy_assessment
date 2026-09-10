@@ -25,7 +25,7 @@ type outputs\results\baiju_mohan\02_sql_and_viz\pipeline_summary.txt
 |---|---|
 | `dim_date` | 11,323 |
 | `dim_project` | 500 |
-| `dim_employee` (SCD2, from Section 1) | 2,232 |
+| `dim_employee` (SCD2, from Section 1) | 2,231 |
 | `dim_vendor` | 25 |
 | `bridge_employee_project` | 500 |
 | `fact_transactions` | 50,000 |

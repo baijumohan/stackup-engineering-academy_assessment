@@ -54,12 +54,12 @@ All 5 validation queries in `data_model.sql` Section 1 return real results, not 
 |---|---|
 | No duplicate `is_current = TRUE` per employee | 0 rows |
 | Overlapping `valid_from`/`valid_to` periods (self-join) | 0 rows |
-| Row-count sanity check (independently computed expected count) | `actual_rows = 2232`, `expected_rows = 2232` — match |
-| Gap check (every period contiguous to the next) | 1 row (`EMP0084`) — see below |
-| Total `dim_employee` rows | 2,232 |
+| Row-count sanity check (independently computed expected count) | `actual_rows = 2231`, `expected_rows = 2231` — match |
+| Gap check (every period contiguous to the next) | 0 rows |
+| Total `dim_employee` rows | 2,231 |
 
 ```powershell
 duckdb outputs\presight_warehouse.duckdb -readonly -c "SELECT COUNT(*) FROM dim_employee;"
 ```
 
-**The one non-zero result is a known, documented data conflict, not a bug**: `EMP0084`'s salary-history file and `employees_clean.csv` disagree on its final values (see `ASSUMPTIONS.md` #2) — `employees_clean.csv` is used as the source of truth per that documented decision, which is exactly what the gap-check query is surfacing.
+**All five queries return clean 0-row results now** — this wasn't always true, and the earlier version of this document mischaracterized why. The gap-check used to return 1 row for `EMP0084`, and this doc previously attributed that to the unrelated "`EMP0084`'s current values disagree with its salary history" data conflict (`ASSUMPTIONS.md` #2). That explanation was wrong. The real cause: `EMP0084` has two salary-history events on the *same* `effective_date` (an Annual Raise and a Promotion, both 2025-03-02). `valid_to` is computed as `LEAD(effective_date) - 1 day`, so two versions sharing one `valid_from` leaves no room for a distinct interval — the earlier-in-the-day version got `valid_to` one day *before* its own `valid_from`. The overlap check (Q3) couldn't catch this (it assumes `valid_to >= valid_from`), only the gap check (Q5) could. Fixed in `data_model.sql` by collapsing same-day history rows to their terminal state via the `previous_salary`/`new_salary` chain before building versions — `dim_employee` dropped from 2,232 to 2,231 rows as a result (the superseded intra-day row no longer produces a version). `EMP0084`'s current-row values now agree exactly with its (correctly resolved) last history row, too — the old "disagreement" in `ASSUMPTIONS.md` #2 was itself a symptom of this same bug, not a separate data conflict.

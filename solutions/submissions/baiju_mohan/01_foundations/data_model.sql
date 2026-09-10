@@ -249,11 +249,11 @@ DELETE FROM dim_vendor;
 --    LEAD(effective_date) so valid_to = the next version's valid_from - 1
 --    day, with no gaps and no overlaps by construction. The CURRENT version
 --    for these employees takes role/level/salary from employees_clean.csv,
---    not from the last history row — checked directly, and 593 of 594
---    agree exactly, but EMP0084 doesn't (history's last row: salary 16314 /
---    Junior; employees_clean.csv: salary 23354 / Mid). employees_clean.csv
---    is documented as the "current state" export, so it wins as the source
---    of truth for the is_current = TRUE row.
+--    not from the last history row — checked directly, and most agree
+--    exactly. A couple (EMP0356, EMP0900) genuinely disagree — real source
+--    data conflicts — so employees_clean.csv, documented as the "current
+--    state" export, wins as the source of truth for the is_current = TRUE
+--    row either way.
 --
 -- 3. The remaining 406 employees have no history: one row each, valid_from
 --    = hire_date, valid_to = 9999-12-31, is_current = TRUE.
@@ -271,12 +271,41 @@ DELETE FROM dim_vendor;
 --    lookup independently for every output column; a single JOIN resolves
 --    all of them together in one pass, which is both faster and shorter to
 --    read.
+--
+-- 6. Same-day duplicates: EMP0084 has two salary-history rows on the same
+--    effective_date (an Annual Raise then a Promotion, both 2025-03-02).
+--    valid_to below is computed as the next version's valid_from - 1 day,
+--    so two versions sharing one valid_from leaves no room for a distinct
+--    interval — the earlier one would get valid_to one day BEFORE its own
+--    valid_from. Q3's overlap check can't catch that (it assumes valid_to
+--    >= valid_from); only Q5's gap check can. Fixed below by collapsing
+--    same-day rows to their terminal state first, via the
+--    previous_salary/new_salary chain — a row is superseded, and dropped,
+--    when another same-day row's previous_salary equals its new_salary.
 -- ===========================================================================
 
 CREATE OR REPLACE TABLE stg_employees AS
     SELECT * FROM read_csv_auto('outputs/results/baiju_mohan/01_foundations/employees_clean.csv');
 CREATE OR REPLACE TABLE stg_salary_history AS
     SELECT * FROM read_csv_auto('datasets/employees_salary_history.csv');
+
+
+-- ---------------------------------------------------------------------------
+-- Same-day dedup — see design decision 6. Collapses same-day history rows
+-- to their terminal state; a row is dropped when another same-day row for
+-- the same employee has previous_salary equal to this row's new_salary.
+-- Employees without same-day ties are untouched (the NOT EXISTS below
+-- never matches for them).
+-- ---------------------------------------------------------------------------
+CREATE OR REPLACE TABLE stg_salary_history_dedup AS
+    SELECT h.*
+    FROM stg_salary_history h
+    WHERE NOT EXISTS (
+        SELECT 1 FROM stg_salary_history h2
+        WHERE h2.employee_id = h.employee_id
+          AND h2.effective_date = h.effective_date
+          AND h2.previous_salary = h.new_salary
+    );
 
 
 -- ---------------------------------------------------------------------------
@@ -291,7 +320,7 @@ WITH ranked AS (
         ROW_NUMBER() OVER (PARTITION BY employee_id ORDER BY effective_date) AS rn,
         COUNT(*) OVER (PARTITION BY employee_id) AS total_versions,
         LEAD(effective_date) OVER (PARTITION BY employee_id ORDER BY effective_date) AS next_effective_date
-    FROM stg_salary_history h
+    FROM stg_salary_history_dedup h
 )
 SELECT
     employee_id,
@@ -433,11 +462,14 @@ JOIN dim_employee b
 -- (one row per salary-history record) + (one row per employee with no
 -- history), computed independently of the INSERT logic above. Catches a
 -- whole class of bug (dropped/duplicated employees) that Q1-Q3 wouldn't.
+-- Counts against stg_salary_history_dedup, not stg_salary_history — see
+-- design decision 6; EMP0084's same-day duplicate collapses to one fewer
+-- row than the raw history file would suggest.
 -- expected_rows and actual_rows must match.
 -- ---------------------------------------------------------------------------
 SELECT
     (SELECT COUNT(*) FROM dim_employee) AS actual_rows,
-    (SELECT COUNT(*) FROM stg_salary_history)
+    (SELECT COUNT(*) FROM stg_salary_history_dedup)
     + (SELECT COUNT(*) FROM stg_employees
        WHERE employee_id NOT IN (SELECT DISTINCT employee_id FROM stg_salary_history)) AS expected_rows;
 
