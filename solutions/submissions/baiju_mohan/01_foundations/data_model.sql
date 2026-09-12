@@ -272,6 +272,17 @@ DELETE FROM dim_vendor;
 --    lookup independently for every output column; a single JOIN resolves
 --    all of them together in one pass, which is both faster and shorter to
 --    read.
+--
+-- 6. Same-day duplicates: EMP0084 has two salary-history rows on the same
+--    effective_date (an Annual Raise then a Promotion, both 2025-03-02).
+--    valid_to below is computed as the next version's valid_from - 1 day,
+--    so two versions sharing one valid_from leaves no room for a distinct
+--    interval — the earlier one would get valid_to one day BEFORE its own
+--    valid_from. Q3's overlap check can't catch that (it assumes valid_to
+--    >= valid_from); only Q5's gap check can. Fixed below by collapsing
+--    same-day rows to their terminal state first, via the
+--    previous_salary/new_salary chain — a row is superseded, and dropped,
+--    when another same-day row's previous_salary equals its new_salary.
 -- ===========================================================================
 CREATE OR REPLACE TABLE stg_employees AS
 SELECT *
@@ -306,6 +317,8 @@ WHERE NOT EXISTS (
             AND h2.effective_date = h.effective_date
             AND h2.previous_salary = h.new_salary
     );
+
+
 -- ---------------------------------------------------------------------------
 -- Closed (historical) versions: every history row except each employee's
 -- most recent. valid_to is chained from the NEXT row's effective_date via
