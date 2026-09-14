@@ -228,61 +228,34 @@ DELETE FROM dim_vendor;
 --
 -- DESIGN DECISIONS:
 --
--- 1. Only role/level/salary are tracked as true Type 2 attributes.
---    full_name/email/department/region/status/years_experience/manager_id/
---    hire_date are carried forward from the current employees_clean.csv
---    snapshot on every version, because the history file has no historical
---    values for those columns — there's nothing to version them against.
---    This is a documented scope limit, not an oversight.
+-- 1. Only role/level/salary are versioned (Type 2). Everything else
+--    (name, email, dept, etc.) carries forward from employees_clean.csv —
+--    the history file has nothing else to version against.
 --
--- 2. 594 of 1,000 employees have salary history (1-4 changes each, so 2-5
---    total versions once the current row is added — matches the task's
---    "expect 2-5 versions" note). Each history row except an employee's
---    most recent becomes a closed (is_current = FALSE) version, chained via
---    LEAD(effective_date) so valid_to = the next version's valid_from - 1
---    day, with no gaps and no overlaps by construction. The CURRENT version
---    for these employees takes role/level/salary from employees_clean.csv,
---    not from the last history row — checked directly, and most agree
---    exactly. EMP0084 used to be the one flagged exception (history's last
---    row read 16314/Junior against employees_clean.csv's 23354/Mid), but
---    that was itself downstream of the same-day-duplicate bug the dedup
---    step above fixes: EMP0084's real last row is the Promotion event
---    (23354/Mid), not the superseded same-day Annual Raise — post-fix, it
---    agrees exactly like the rest. A couple of unrelated employees (e.g.
---    EMP0356, EMP0900) still show a large salary gap between their last
---    history row and employees_clean.csv — a separate, pre-existing data
---    discrepancy in the source files, not a build bug. Either way,
---    employees_clean.csv is documented as the "current state" export, so
---    it wins as the source of truth for the is_current = TRUE row
---    regardless of what the history rows say.
+-- 2. 594 of 1,000 employees have salary history (2-5 versions each). Each
+--    past row becomes a closed version via LEAD(effective_date); the
+--    CURRENT version's role/level/salary always comes from
+--    employees_clean.csv, not the last history row — it's the documented
+--    "current state" source of truth. Two employees (EMP0356, EMP0900)
+--    show a pre-existing gap between their last history row and
+--    employees_clean.csv — a source-data discrepancy, not a build bug.
 --
--- 3. The remaining 406 employees have no history: one row each, valid_from
---    = hire_date, valid_to = 9999-12-31, is_current = TRUE.
+-- 3. The remaining 406 employees have no history: one row, valid_from =
+--    hire_date, valid_to = 9999-12-31, is_current = TRUE.
 --
--- 4. Sentinel valid_from = 1900-01-01: 8 employees have BOTH no salary
---    history AND a hire_date that Task 1.3 nulled out as unrecoverable
---    ("-999" / "99999-01-01" in the raw source). With no usable valid_from
---    from either source, these get an explicit "unknown start" sentinel
---    instead of a NULL, which would violate the NOT NULL constraint above
---    and break Q3/Q5's interval-arithmetic checks below.
+-- 4. 8 employees have neither salary history nor a usable hire_date
+--    (nulled by Task 1.3 as unrecoverable) — they get a 1900-01-01
+--    sentinel valid_from instead of NULL, so Q3/Q5's date math doesn't break.
 --
--- 5. The final INSERT joins tmp_* back to stg_employees ONCE, on
---    employee_id, for the carried-forward descriptive columns — not a
---    correlated subquery per column. A subquery-per-column re-runs the
---    lookup independently for every output column; a single JOIN resolves
---    all of them together in one pass, which is both faster and shorter to
---    read.
+-- 5. The final INSERT joins tmp_* to stg_employees ONCE (not a subquery
+--    per column) for the carried-forward columns — faster, shorter to read.
 --
--- 6. Same-day duplicates: EMP0084 has two salary-history rows on the same
---    effective_date (an Annual Raise then a Promotion, both 2025-03-02).
---    valid_to below is computed as the next version's valid_from - 1 day,
---    so two versions sharing one valid_from leaves no room for a distinct
---    interval — the earlier one would get valid_to one day BEFORE its own
---    valid_from. Q3's overlap check can't catch that (it assumes valid_to
---    >= valid_from); only Q5's gap check can. Fixed below by collapsing
---    same-day rows to their terminal state first, via the
---    previous_salary/new_salary chain — a row is superseded, and dropped,
---    when another same-day row's previous_salary equals its new_salary.
+-- 6. Same-day duplicates: EMP0084 had two salary changes on 2025-03-02.
+--    valid_to is computed as the next version's valid_from - 1 day, so two
+--    same-day versions produce an inverted interval for the earlier one —
+--    caught by Q5's gap check, not Q3's overlap check. Fixed by collapsing
+--    same-day rows to their terminal state first (previous_salary =
+--    new_salary chain).
 -- ===========================================================================
 CREATE OR REPLACE TABLE stg_employees AS
 SELECT *
@@ -293,19 +266,13 @@ CREATE OR REPLACE TABLE stg_salary_history AS
 SELECT *
 FROM read_csv_auto('datasets/employees_salary_history.csv');
 -- ---------------------------------------------------------------------------
--- Same-day dedup: one employee (EMP0084) has two history rows on the same
--- effective_date (an Annual Raise then a Promotion, both 2025-03-02).
--- valid_to is chained via LEAD(effective_date) below at DAY granularity, so
--- two versions sharing one valid_from leaves no room for a distinct
--- interval — the earlier one gets valid_to = valid_from - 1 day, an
--- inverted range (caught by Q5, invisible to Q3 since Q3's overlap
--- predicate assumes valid_to >= valid_from). Since no point-in-time query
--- at day grain could ever land on the superseded intra-day state anyway,
--- only the terminal state per (employee_id, effective_date) is a real
--- version. previous_salary/new_salary chain within a day (15217->16314->
--- 23354 for EMP0084), so a row is superseded — and dropped — when another
--- same-day row's previous_salary equals its new_salary. Employees without
--- same-day ties are untouched (the NOT EXISTS below never matches).
+-- Same-day dedup: EMP0084 has two history rows dated 2025-03-02 (Annual
+-- Raise then Promotion). Two versions sharing one valid_from would give
+-- the earlier one an inverted range (valid_to before valid_from) — missed
+-- by Q3's overlap check, caught by Q5's gap check. Fix: keep only the
+-- terminal state per day. A row is dropped when another same-day row's
+-- previous_salary matches its new_salary (15217->16314->23354 for
+-- EMP0084). Employees without same-day ties are untouched.
 -- ---------------------------------------------------------------------------
 CREATE OR REPLACE TABLE stg_salary_history_dedup AS
 SELECT h.*

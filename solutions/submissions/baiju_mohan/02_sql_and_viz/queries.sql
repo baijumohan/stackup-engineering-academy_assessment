@@ -23,6 +23,10 @@
 
 -- ---------------------------------------------------------------------------
 -- Q1 — Department budget performance
+
+--Which departments have spent more than 90% of their total allocated budget? 
+--Include departments that are over budget.
+
 -- Aggregate budget/actual_cost off dim_project, then filter with HAVING
 -- since the 90% threshold applies to the aggregated total.
 -- ---------------------------------------------------------------------------
@@ -40,6 +44,10 @@ ORDER BY spend_percentage DESC;
 
 -- ---------------------------------------------------------------------------
 -- Q2 — Project manager workload (current employee data)
+
+--Which managers are currently overseeing more than three active projects?
+-- A manager with too many active projects is a delivery risk.
+
 -- Join dim_project to dim_employee where is_current=TRUE, restrict to
 -- active projects, filter for >3 in HAVING.
 -- Verified result: 0 rows on this dataset — max concurrent active projects
@@ -63,6 +71,10 @@ ORDER BY active_project_count DESC;
 
 -- ---------------------------------------------------------------------------
 -- Q3 — Vendor concentration risk
+
+--Identify vendors who account for more than 5% of total transaction spend. 
+--With 50,000 transactions, even a 5% share represents meaningful concentration.
+
 -- A scalar subquery computes the grand total spend once in the SELECT list;
 -- it's a single value, so a subquery here reads more directly than a CTE +
 -- CROSS JOIN would for the same result.
@@ -95,6 +107,10 @@ ORDER BY percentage_of_total_spend DESC;
 
 -- ---------------------------------------------------------------------------
 -- Q4 — Projects with open financial issues
+
+--Find all projects with pending or disputed transactions totalling more than 50,000 AED.
+ --These need finance team attention.
+
 -- Filter fact_transactions to Pending/Disputed, aggregate per project,
 -- then HAVING > 50,000 AED.
 -- ---------------------------------------------------------------------------
@@ -115,6 +131,10 @@ ORDER BY open_transaction_value DESC;
 
 -- ---------------------------------------------------------------------------
 -- Q5 — Monthly spend trend with running total
+
+--Show total transaction spend per month, per category, with a running total accumulating within each category over time. 
+--This view drives the Finance dashboard.
+
 -- SUM() OVER (PARTITION BY category ORDER BY year_month) gives the running
 -- total in one pass; LAG() gives month-over-month % change.
 -- ---------------------------------------------------------------------------
@@ -146,6 +166,10 @@ ORDER BY category, year_month ASC;
 
 -- ---------------------------------------------------------------------------
 -- Q6 — Employee compensation history analysis (SCD2 self-join)
+
+--Using dim_employee SCD2 data, identify employees who received the largest 
+--single salary increase (in absolute AED terms).
+
 -- Self-join dim_employee to itself, matching each version to the next by
 -- valid_to = valid_from - 1 day (the adjacency data_model.sql's SCD2 build
 -- constructs, and its own Q5 validation independently verifies). Top 20 by

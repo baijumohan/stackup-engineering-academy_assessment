@@ -40,17 +40,25 @@ from datetime import datetime
 import numpy as np
 import pandas as pd
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s"
+)
 logger = logging.getLogger(__name__)
 
 # ── Paths ──────────────────────────────────────────────────────────────────────
 # DATA_DIR/OUTPUT_DIR are environment-overridable (needed for Task 4.1's
 # containerised ETL and for running this same module inside the Airflow
 # container in Pillar 3), with the host repo layout as the default.
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
+BASE_DIR = os.path.dirname(
+    os.path.dirname(
+        os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    )
+)
 DATA_DIR = os.environ.get("DATA_DIR", os.path.join(BASE_DIR, "datasets"))
 OUTPUT_DIR = os.environ.get("OUTPUT_DIR", os.path.join(BASE_DIR, "outputs"))
-RESULTS_DIR = os.environ.get("RESULTS_DIR", os.path.join(OUTPUT_DIR, "results", "baiju_mohan", "01_foundations"))
+RESULTS_DIR = os.environ.get(
+    "RESULTS_DIR", os.path.join(OUTPUT_DIR, "results", "baiju_mohan", "01_foundations")
+)
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 os.makedirs(RESULTS_DIR, exist_ok=True)
 
@@ -58,6 +66,7 @@ os.makedirs(RESULTS_DIR, exist_ok=True)
 # ==============================================================================
 # TASK 1.1 — Load and transform projects.csv
 # ==============================================================================
+
 
 def load_projects(filepath: str) -> pd.DataFrame:
     """Load projects.csv into a DataFrame with explicit dtypes and parsed dates."""
@@ -91,7 +100,11 @@ def transform_projects(df: pd.DataFrame) -> pd.DataFrame:
     # NaN for rows that started with a missing value.
     null_budget = df["budget"].isna().sum()
     null_actual = df["actual_cost"].isna().sum()
-    logger.info("Null budget: %d rows | Null actual_cost: %d rows -> filled with 0", null_budget, null_actual)
+    logger.info(
+        "Null budget: %d rows | Null actual_cost: %d rows -> filled with 0",
+        null_budget,
+        null_actual,
+    )
     df["budget"] = df["budget"].fillna(0)
     df["actual_cost"] = df["actual_cost"].fillna(0)
 
@@ -125,7 +138,9 @@ def transform_projects(df: pd.DataFrame) -> pd.DataFrame:
     df["status_category"] = df["status"].map(status_map)
     unmapped = df["status_category"].isna().sum()
     if unmapped:
-        logger.warning("%d rows had a status value outside the expected 4 categories", unmapped)
+        logger.warning(
+            "%d rows had a status value outside the expected 4 categories", unmapped
+        )
 
     # Derived column: risk_level
     # .to_numpy(dtype=bool) forces a plain bool ndarray — `priority` is
@@ -134,19 +149,24 @@ def transform_projects(df: pd.DataFrame) -> pd.DataFrame:
     # pandas/numpy version combinations.
     conditions = [
         ((df["priority"] == "Critical") | (df["is_over_budget"])).to_numpy(dtype=bool),
-        ((df["priority"] == "High") | (df["budget_utilisation_pct"] > 90)).to_numpy(dtype=bool),
+        ((df["priority"] == "High") | (df["budget_utilisation_pct"] > 90)).to_numpy(
+            dtype=bool
+        ),
     ]
     choices = ["High", "Medium"]
     df["risk_level"] = np.select(conditions, choices, default="Low")
 
     logger.info("Transform complete: %d rows, %d columns", len(df), df.shape[1])
-    logger.info("risk_level distribution: %s", df["risk_level"].value_counts().to_dict())
+    logger.info(
+        "risk_level distribution: %s", df["risk_level"].value_counts().to_dict()
+    )
     return df
 
 
 # ==============================================================================
 # TASK 1.3 — Data quality issues in employees.csv
 # ==============================================================================
+
 
 def load_employees(filepath: str) -> pd.DataFrame:
     """Load employees.csv and log a null-count summary. Fixes happen in clean_employees()."""
@@ -181,7 +201,10 @@ def clean_employees(df: pd.DataFrame) -> pd.DataFrame:
     hire_date_str = df["hire_date"].astype(str)
     non_date_shaped = hire_date_str.str.match(r"^-?\d{1,4}$")
     n_bad_format = int(non_date_shaped.sum())
-    logger.info("Issue 2 [Invalid date format] — non-date-shaped hire_date: %d rows", n_bad_format)
+    logger.info(
+        "Issue 2 [Invalid date format] — non-date-shaped hire_date: %d rows",
+        n_bad_format,
+    )
     df.loc[non_date_shaped, "hire_date"] = pd.NA
     quality_summary["invalid_hire_date_format_fixed"] = n_bad_format
 
@@ -189,12 +212,17 @@ def clean_employees(df: pd.DataFrame) -> pd.DataFrame:
     # lands on an impossible year (e.g. "99999-01-01")
     parsed_hire = pd.to_datetime(df["hire_date"], errors="coerce")
     today = pd.Timestamp.today().normalize()
-    reasonable_window = (parsed_hire >= pd.Timestamp("1990-01-01")) & (parsed_hire <= today)
+    reasonable_window = (parsed_hire >= pd.Timestamp("1990-01-01")) & (
+        parsed_hire <= today
+    )
     implausible = df["hire_date"].notna() & parsed_hire.notna() & ~reasonable_window
     implausible_pattern = hire_date_str.str.match(r"^\d{5,}-\d{2}-\d{2}$")
     implausible = implausible | (implausible_pattern & df["hire_date"].notna())
     n_implausible = int(implausible.sum())
-    logger.info("Issue 3 [Implausible dates] — hire_date outside 1990-today: %d rows", n_implausible)
+    logger.info(
+        "Issue 3 [Implausible dates] — hire_date outside 1990-today: %d rows",
+        n_implausible,
+    )
     df.loc[implausible, "hire_date"] = pd.NA
     df["hire_date"] = pd.to_datetime(df["hire_date"], errors="coerce")
     quality_summary["implausible_hire_date_fixed"] = n_implausible
@@ -204,7 +232,10 @@ def clean_employees(df: pd.DataFrame) -> pd.DataFrame:
     yrs = pd.to_numeric(df["years_experience"], errors="coerce")
     out_of_range = (yrs < 0) | (yrs > 50)
     n_out_of_range = int(out_of_range.sum())
-    logger.info("Issue 4 [Numeric out-of-range] — years_experience outside [0,50]: %d rows", n_out_of_range)
+    logger.info(
+        "Issue 4 [Numeric out-of-range] — years_experience outside [0,50]: %d rows",
+        n_out_of_range,
+    )
     df.loc[out_of_range, "years_experience"] = np.nan
     df["years_experience"] = pd.to_numeric(df["years_experience"], errors="coerce")
     level_median = df.groupby("level")["years_experience"].transform("median")
@@ -220,7 +251,10 @@ def clean_employees(df: pd.DataFrame) -> pd.DataFrame:
     p05_by_level = df.groupby("level")["salary"].transform(lambda s: s.quantile(0.05))
     salary_anomaly = (salary > p95_by_level * 1.5) | (salary < p05_by_level * 0.5)
     n_salary_anomaly = int(salary_anomaly.sum())
-    logger.info("Issue 5 [Logical inconsistency] — salary inconsistent with level band: %d rows", n_salary_anomaly)
+    logger.info(
+        "Issue 5 [Logical inconsistency] — salary inconsistent with level band: %d rows",
+        n_salary_anomaly,
+    )
     df["salary_flagged_outlier"] = salary_anomaly
     df.loc[salary_anomaly, "salary"] = p95_by_level[salary_anomaly]
     quality_summary["salary_level_mismatch_fixed"] = n_salary_anomaly
@@ -230,7 +264,10 @@ def clean_employees(df: pd.DataFrame) -> pd.DataFrame:
     inactive_ids = set(df.loc[df["status"] == "Inactive", "employee_id"])
     status_conflict = df["manager_id"].isin(inactive_ids) & (df["status"] == "Active")
     n_status_conflict = int(status_conflict.sum())
-    logger.info("Issue 6 [Status conflict] — Active employee reporting to an Inactive manager: %d rows", n_status_conflict)
+    logger.info(
+        "Issue 6 [Status conflict] — Active employee reporting to an Inactive manager: %d rows",
+        n_status_conflict,
+    )
     quality_summary["status_conflicts_found"] = n_status_conflict
 
     logger.info("Data quality summary: %s", quality_summary)
@@ -242,6 +279,7 @@ def clean_employees(df: pd.DataFrame) -> pd.DataFrame:
 # PIPELINE ENTRY POINT
 # ==============================================================================
 
+
 def _write_output(df: pd.DataFrame, filename: str):
     """Writes to outputs/results/baiju_mohan/... — the submission-folder
     convention, so multiple trainees' outputs in the shared repo don't
@@ -250,9 +288,12 @@ def _write_output(df: pd.DataFrame, filename: str):
 
 
 def _write_pipeline_summary(
-    n_projects_raw: int, n_projects_clean: int,
-    n_employees_raw: int, n_employees_clean: int,
-    quality_summary: dict, elapsed_seconds: float,
+    n_projects_raw: int,
+    n_projects_clean: int,
+    n_employees_raw: int,
+    n_employees_clean: int,
+    quality_summary: dict,
+    elapsed_seconds: float,
 ):
     """Run-summary artifact — same shape as Pillar 2's etl_full.py, scoped to
     Pillar 1's own load+transform+clean+write time."""
@@ -281,7 +322,9 @@ def _write_pipeline_summary(
         f"Target: full Pillar 1 pipeline (projects + employees) in < 30 seconds. "
         f"Actual: {elapsed_seconds:.2f}s ({'PASS' if elapsed_seconds < 30 else 'FAIL'})",
     ]
-    with open(os.path.join(RESULTS_DIR, "pipeline_summary.txt"), "w", encoding="utf-8") as f:
+    with open(
+        os.path.join(RESULTS_DIR, "pipeline_summary.txt"), "w", encoding="utf-8"
+    ) as f:
         f.write("\n".join(lines))
     logger.info("pipeline_summary.txt written")
 
@@ -308,17 +351,28 @@ def run_pipeline():
     logger.info("Wrote employees_clean.csv (%d rows x %d cols)", *employees_clean.shape)
 
     quality_summary = employees_clean.attrs.get("quality_summary", {})
-    with open(os.path.join(RESULTS_DIR, "employees_quality_summary.json"), "w", encoding="utf-8") as f:
+    with open(
+        os.path.join(RESULTS_DIR, "employees_quality_summary.json"),
+        "w",
+        encoding="utf-8",
+    ) as f:
         json.dump(quality_summary, f, indent=2)
 
     elapsed = time.time() - start
     _write_pipeline_summary(
-        len(raw_projects), len(projects_clean),
-        len(raw_employees), len(employees_clean),
-        quality_summary, elapsed,
+        len(raw_projects),
+        len(projects_clean),
+        len(raw_employees),
+        len(employees_clean),
+        quality_summary,
+        elapsed,
     )
 
-    logger.info("Pillar 1 pipeline complete in %.2f seconds. Outputs written to %s", elapsed, RESULTS_DIR)
+    logger.info(
+        "Pillar 1 pipeline complete in %.2f seconds. Outputs written to %s",
+        elapsed,
+        RESULTS_DIR,
+    )
     return projects_clean, employees_clean
 
 
