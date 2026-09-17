@@ -121,6 +121,14 @@ def validate_events(df):
 # STEP 4 — Aggregations
 # ==============================================================================
 
+# Table 1: project_activity_summary — INSTRUCTIONS.md requirement:
+# For each project: total_events (all events linked to this project),
+# escalation_count (event_type='escalation_raised'), task_completions
+# (event_type='task_completed'), document_uploads
+# (event_type='document_uploaded'), last_event_timestamp (most recent
+# timestamp), unique_users (distinct users who triggered events),
+# unique_event_types (distinct event types touching this project).
+# Exclude null project_ids (logins).
 def project_activity_summary(df):
     """Table 1. Excludes null project_ids (logins have no project)."""
     scoped = df.filter(F.col("project_id").isNotNull())
@@ -139,6 +147,12 @@ def project_activity_summary(df):
     )
 
 
+# Table 2: user_activity_summary — INSTRUCTIONS.md requirement:
+# For each user: login_count (event_type='login'), logout_count
+# (event_type='logout'), actions_taken (all events excluding
+# login/logout), projects_touched (distinct projects, excluding nulls),
+# first_active (earliest timestamp), last_active (latest timestamp),
+# active_days (distinct event_date count).
 def user_activity_summary(df):
     """Table 2."""
     return (
@@ -155,6 +169,7 @@ def user_activity_summary(df):
         .orderBy(F.col("actions_taken").desc())
     )
 
+#-------------------------------------------------------------------------
 
 _ESCALATION_LOG_SCHEMA = StructType([
     StructField("event_id", StringType()),
@@ -171,14 +186,14 @@ _ESCALATION_LOG_SCHEMA = StructType([
 
 def _match_project_escalations(pdf: pd.DataFrame) -> pd.DataFrame:
     """
-    Runs once per project_id group (via applyInPandas below). For each
-    escalation_resolved event, in chronological order, claims the EARLIEST
-    still-unclaimed escalation_raised event that happened at or before it —
-    "close the oldest open item first". Guarantees resolution_time_hours >= 0
-    by construction, since a resolved event can only ever claim a raise that
-    already happened.
-    Group sizes are small (~4 escalations/project on average), so the O(n^2)
-    scan below is negligible.
+   - Processes one project’s escalation events at a time.
+   - Handles resolution events from earliest to latest.
+   - Matches each resolution to the **oldest escalation still open**.
+   - Only matches an escalation raised before or at the resolution time.
+   - Each raised escalation can be matched only once.
+   - This ensures resolution duration is never negative.
+   - Uses nested loops (`O(n²)`), which are manageable because each project has few escalations.
+   - **Assumption:** the oldest open escalation is resolved first; the data does not confirm the actual match.
     """
     raised = pdf[pdf["_kind"] == "raised"].sort_values("ts").reset_index(drop=True)
     resolved = pdf[pdf["_kind"] == "resolved"].sort_values("ts").reset_index(drop=True)
@@ -212,6 +227,17 @@ def _match_project_escalations(pdf: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(rows) if rows else pd.DataFrame(columns=[f.name for f in _ESCALATION_LOG_SCHEMA])
 
 
+# Table 3: escalation_log — INSTRUCTIONS.md requirement:
+
+# Build a complete escalation log by joining escalation_raised and
+# escalation_resolved events. Extract severity from raised events'
+# payload, resolved_by from resolved events' payload. Compute
+# resolution_time_hours = (resolved_at - raised_at) / 3600. Set
+# resolved = True/False based on existence of a matching resolution. For
+# unresolved escalations, set resolved_at and resolved_by to NULL. (Hint
+# given: left join between raised and resolved DataFrames on project_id,
+# ordered by timestamp — see the docstring below for why this
+# implementation matches nearest-prior instead of a positional join.)
 def escalation_log(df):
     """
     Table 3. Matches each escalation_resolved event to the raise it actually
@@ -256,6 +282,12 @@ def escalation_log(df):
     )
 
 
+# Table 4: daily_event_volume — INSTRUCTIONS.md requirement:
+# Group by event_date and event_type, count events per group, add
+# cumulative_count per event type (running total). Sort by event_date
+# ascending, event_count descending. (Hint given: Window.partitionBy
+# ("event_type").orderBy("event_date") with sum().over(...) for
+# cumulative.)
 def daily_event_volume(df):
     """Table 4. Cumulative running total per event_type via a window sum."""
     daily = df.groupBy("event_date", "event_type").agg(F.count("*").alias("event_count"))
@@ -264,6 +296,11 @@ def daily_event_volume(df):
     return daily.orderBy(F.col("event_date").asc(), F.col("event_count").desc())
 
 
+# Table 5: peak_usage_analysis — INSTRUCTIONS.md requirement:
+# For each event_date x event_hour combination: total_events (count),
+# unique_users (distinct users active), event_types_per_hour (distinct
+# event types). Sort by total_events descending and return top 20 hours.
+# This helps identify peak usage windows.
 def peak_usage_analysis(df):
     """Table 5. Top 20 date x hour combinations by total_events."""
     return (

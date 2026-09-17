@@ -20,6 +20,7 @@ Imported by:
 
 import logging
 import os
+import sys
 
 import numpy as np
 import pandas as pd
@@ -104,6 +105,7 @@ DQ_CONFIG = {
 # ==============================================================================
 # Individual checks — each reads its rules from `config`, none hardcode names
 # ==============================================================================
+#% non-null per column; flag below threshold
 
 def _check_completeness(df: pd.DataFrame, config: dict) -> dict:
     threshold = config["completeness_threshold"]
@@ -115,7 +117,7 @@ def _check_completeness(df: pd.DataFrame, config: dict) -> dict:
         "failed_columns": failed_columns,
     }
 
-
+#PK columns contain no duplicates
 def _check_uniqueness(df: pd.DataFrame, config: dict) -> dict:
     pk_columns = config["pk_columns"]
     total = len(df)
@@ -124,7 +126,7 @@ def _check_uniqueness(df: pd.DataFrame, config: dict) -> dict:
     cols = "+".join(pk_columns)
     return {"status": status, "details": f"{cols}: {unique} unique / {total} total"}
 
-
+#Values within expected min/max range
 def _check_validity_numeric(df: pd.DataFrame, config: dict) -> dict:
     ranges = config.get("numeric_ranges", {})
     messages = []
@@ -140,7 +142,7 @@ def _check_validity_numeric(df: pd.DataFrame, config: dict) -> dict:
         messages.append(f"{col}: {below} values below minimum ({bounds['min']}), {above} values above maximum ({bounds['max']})")
     return {"status": "FAIL" if failed else "PASS", "details": "; ".join(messages) if messages else "no numeric_ranges configured"}
 
-
+#	Dates valid, non-future where expected
 def _check_validity_date(df: pd.DataFrame, config: dict) -> dict:
     date_columns = config.get("date_columns", [])
     messages = []
@@ -157,6 +159,7 @@ def _check_validity_date(df: pd.DataFrame, config: dict) -> dict:
         messages.append(f"{col}: {invalid} unparseable, {future} future-dated")
     return {"status": "FAIL" if failed else "PASS", "details": "; ".join(messages) if messages else "no date_columns configured"}
 
+#start_date < end_date; actual_cost >= 0; salary level matches role level
 
 def _check_consistency(df: pd.DataFrame, config: dict) -> dict:
     rules = config.get("consistency_rules", [])
@@ -197,6 +200,7 @@ def _check_consistency(df: pd.DataFrame, config: dict) -> dict:
             messages.append(f"{salary_col} matches {level_col} band: {violations} violations")
     return {"status": "FAIL" if failed else "PASS", "details": "; ".join(messages) if messages else "no consistency_rules configured"}
 
+#	FKs exist in referenced table (e.g. project_manager_id exists in employees)
 
 def _check_referential_integrity(df: pd.DataFrame, config: dict, reference_tables: dict) -> dict:
     fks = config.get("foreign_keys", {})
@@ -216,6 +220,7 @@ def _check_referential_integrity(df: pd.DataFrame, config: dict, reference_table
 
 
 # ---- Bonus checks -----------------------------------------------------------
+#Distribution check — flag if > 30% of a column has the same value (data loading error)
 
 def _check_distribution(df: pd.DataFrame, config: dict) -> dict:
     columns = config.get("distribution_check_columns", [])
@@ -230,6 +235,7 @@ def _check_distribution(df: pd.DataFrame, config: dict) -> dict:
         messages.append(f"{col}: top value = {top_share:.1%} of rows")
     return {"status": "FAIL" if failed else "PASS", "details": "; ".join(messages) if messages else "no distribution_check_columns configured"}
 
+#Freshness check — flag if max transaction_date older than 30 days
 
 def _check_freshness(df: pd.DataFrame, config: dict) -> dict:
     col = config.get("freshness_column")
@@ -243,6 +249,7 @@ def _check_freshness(df: pd.DataFrame, config: dict) -> dict:
     status = "FAIL" if age_days > max_age_days else "PASS"
     return {"status": status, "details": f"{col}: most recent value is {age_days} days old (threshold {max_age_days})"}
 
+# Outlier check — flag if > 3 std dev from mean (z-score) for numeric columns
 
 def _check_outliers(df: pd.DataFrame, config: dict) -> dict:
     columns = config.get("outlier_check_columns", [])
@@ -332,3 +339,39 @@ def write_dq_report_markdown(dq_result: dict, output_dir: str = None):
     with open(os.path.join(output_dir, f"dq_report_{dataset_name}.md"), "w") as f:
         f.write(text)
     return text
+
+
+# ==============================================================================
+# Standalone entry point — regenerates dq_report_{dataset}.md for all three
+# datasets, using the same loaders (load_projects/load_employees/
+# load_transactions) and self-referential reference_tables pattern as
+# airflow_dag.py's validate_data_quality task, so results are directly
+# comparable to the DAG's live DQ gate numbers instead of drifting stale.
+# ==============================================================================
+
+def main():
+    sys.path.insert(0, os.path.join(BASE_DIR, "solutions", "submissions", "baiju_mohan", "01_foundations"))
+    sys.path.insert(0, os.path.join(BASE_DIR, "solutions", "submissions", "baiju_mohan", "02_sql_and_viz"))
+    from etl_pipeline import load_projects, load_employees
+    from etl_full import load_transactions
+
+    data_dir = os.path.join(BASE_DIR, "datasets")
+    raw = {
+        "projects": load_projects(os.path.join(data_dir, "projects.csv")),
+        "employees": load_employees(os.path.join(data_dir, "employees.csv")),
+        "transactions": load_transactions(os.path.join(data_dir, "transactions.json")),
+    }
+
+    for name, df in raw.items():
+        # Includes raw[name] itself — employees.manager_id is a
+        # self-referential FK, so the reference set for a dataset's own FK
+        # checks has to contain the dataset being validated (see the same
+        # comment in airflow_dag.py's validate_data_quality task).
+        result = run_data_quality_checks(df, name, reference_tables=raw)
+        logger.info("%s -> %d/%d checks passed", name, result["checks_passed"], result["checks_run"])
+        write_dq_report_markdown(result)
+
+
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
+    main()

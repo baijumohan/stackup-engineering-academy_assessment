@@ -53,9 +53,9 @@ unrelated Compose file field.
 
 Stop everything later with `docker compose down`.
 
-## Pillar 1 — Foundations
+## Pillar 1 — Foundations (Tasks 1.1–1.3)
 
-**Tool: terminal**
+**Task 1.1 (projects) + Task 1.3 (employees) — Tool: terminal**
 ```
 python solutions/submissions/baiju_mohan/01_foundations/etl_pipeline.py
 ```
@@ -69,7 +69,7 @@ type outputs\results\baiju_mohan\01_foundations\pipeline_summary.txt
 ```
 Expect `(500, 17)`, and `Actual: <n>s (PASS)` in the summary — target is under 30 seconds.
 
-**Tool: DuckDB CLI (or any SQL client) against `outputs/presight_warehouse.duckdb`**
+**Task 1.2 — Tool: DuckDB CLI (or any SQL client) against `outputs/presight_warehouse.duckdb`**
 Run `01_foundations/data_model.sql`'s Section 1 (star schema DDL + SCD2
 `dim_employee` build + validation). It has no path placeholders, so it runs
 as-is — no substitution needed. It's also self-re-runnable: `CREATE TABLE
@@ -98,22 +98,28 @@ duckdb outputs\presight_warehouse.duckdb -readonly -c "SELECT COUNT(*) FROM dim_
 ```
 Expect `2231`.
 
+**Tool: Jupyter notebook** — [foundations_explorer.ipynb](01_foundations/foundations_explorer.ipynb)
+walks through `etl_pipeline.py` step by step — real before/after tables for
+each of the 6 employee data-quality fixes, not just the code. Same
+**"Presight (Python 3.14)"** kernel as the Pillar 2/3 notebooks. Open it in
+VS Code, run cells top to bottom.
+
 See [01_foundations/ASSUMPTIONS.md](01_foundations/ASSUMPTIONS.md) and
 [01_foundations/VALIDATION_EVIDENCE.md](01_foundations/VALIDATION_EVIDENCE.md)
 for the reasoning and full evidence behind this pillar's numbers.
 
-## Pillar 2 — SQL & Data Visualization
+## Pillar 2 — SQL & Data Visualization (Tasks 2.1–2.4)
 
-**Tool: terminal**
+**Task 2.2 (ETL) + Task 2.1 (business questions) + Task 2.3 (optimisation) — Tool: terminal**
 ```
 python solutions/submissions/baiju_mohan/02_sql_and_viz/etl_full.py
 python solutions/submissions/baiju_mohan/02_sql_and_viz/run_queries.py
 python solutions/submissions/baiju_mohan/02_sql_and_viz/run_optimization.py
 ```
-`etl_full.py` writes `transactions_clean.csv` + `pipeline_summary.txt`.
-`run_queries.py` loads Section 2 of `data_model.sql` (remaining warehouse
+`etl_full.py` (**Task 2.2**) writes `transactions_clean.csv` + `pipeline_summary.txt`.
+`run_queries.py` (**Task 2.1**) loads Section 2 of `data_model.sql` (remaining warehouse
 tables) and runs `queries.sql`'s six business questions, printing real
-result rows. `run_optimization.py` runs `query_optimization.sql`'s
+result rows. `run_optimization.py` (**Task 2.3**) runs `query_optimization.sql`'s
 original/rewritten queries against real PostgreSQL (the `presight-postgres`
 container — `docker-compose up -d postgres` first) and prints the Task 2.3
 EXPLAIN ANALYZE + benchmark output.
@@ -124,12 +130,12 @@ type outputs\results\baiju_mohan\02_sql_and_viz\pipeline_summary.txt
 ```
 Look for `Actual: <n>s (PASS)` — target is under 30 seconds.
 
-**Tool: DuckDB CLI (or any SQL client)** — `01_foundations/data_model.sql`
-and `02_sql_and_viz/queries.sql` are plain runnable SQL; open either and run
+**Task 1.2 + Task 2.1 — Tool: DuckDB CLI (or any SQL client)** — `01_foundations/data_model.sql`
+(**Task 1.2**) and `02_sql_and_viz/queries.sql` (**Task 2.1**) are plain runnable SQL; open either and run
 statements directly against the warehouse. `queries.sql` needs Section 2
 already loaded first (via `run_queries.py` above, or manually).
 
-**Tool: psql (or any Postgres client)** —
+**Task 2.3 — Tool: psql (or any Postgres client)** —
 `02_sql_and_viz/query_optimization.sql` runs against real PostgreSQL, not
 DuckDB — its own setup block creates plain `employees`/`projects`/
 `transactions` tables and loads them via `COPY`, which is server-side, so
@@ -162,22 +168,28 @@ See [02_sql_and_viz/VALIDATION_EVIDENCE.md](02_sql_and_viz/VALIDATION_EVIDENCE.m
 for the real row counts, query results, and optimisation benchmark numbers
 behind this pillar.
 
-## Pillar 3 — Big Data Processing
+## Pillar 3 — Big Data Processing (Tasks 3.1–3.3)
 
 Requires Step 0 (Docker services) above already running.
 
-**Tool: terminal, with Spark env vars set first** (Windows PowerShell shown
+**Task 3.1 — Tool: terminal, with Spark env vars set first** (Windows PowerShell shown
 — these don't persist between terminal sessions, set them each time or add
 to your profile):
 ```powershell
-$env:JAVA_HOME = "C:\Users\baiju.mohanan\AppData\Local\Programs\Eclipse Adoptium\jdk-17.0.20.8-hotspot"
+$env:JAVA_HOME = "C:\Program Files\Eclipse Adoptium\jdk-17.0.20.101-hotspot"
 $env:HADOOP_HOME = "C:\hadoop"                    # folder containing bin\winutils.exe + bin\hadoop.dll
-$env:Path = "$env:HADOOP_HOME\bin;$env:Path"
+$env:Path = "$env:HADOOP_HOME\bin;$env:JAVA_HOME\bin;$env:Path"
 $env:PYSPARK_PYTHON = "$PWD\.venv\Scripts\python.exe"        # pin driver+worker to the same interpreter
 $env:PYSPARK_DRIVER_PYTHON = "$PWD\.venv\Scripts\python.exe"
 
 .venv\Scripts\python.exe solutions\submissions\baiju_mohan\03_big_data\spark_pipeline.py
 ```
+`JAVA_HOME` above points at this machine's Temurin 17 install. On another
+machine, don't have a JDK 17 yet? `winget install --id EclipseAdoptium.Temurin.17.JDK -e`
+installs one (usually lands at `C:\Program Files\Eclipse Adoptium\jdk-17.x.x-hotspot`);
+if that install hangs on a UAC prompt, download the portable zip from
+[adoptium.net](https://adoptium.net/temurin/releases/?version=17) instead and
+extract it anywhere — no admin rights needed.
 PySpark lives in `.venv` (Python 3.11) — `PYSPARK_PYTHON`/`PYSPARK_DRIVER_PYTHON`
 matter specifically because `escalation_log()` uses `applyInPandas`, which
 spawns real worker processes; if those resolve to a *different* Python than
@@ -198,7 +210,7 @@ dir outputs\artifacts\baiju_mohan\03_big_data\spark
 ```
 Expect 5 subfolders, one per table.
 
-**Tool: terminal**
+**Task 3.2 — Tool: terminal**
 ```
 python solutions/submissions/baiju_mohan/03_big_data/kafka_streaming.py --mode both
 ```
@@ -219,7 +231,7 @@ explores all 5 Spark Parquet tables plus the Kafka summary via DuckDB's
 `read_parquet()` (no pyarrow/pandas-parquet path needed for reading). Same
 "Presight (Python 3.14)" kernel as the Pillar 2 notebook.
 
-**Tool: terminal (deploy) + Airflow web UI or terminal (trigger)**
+**Task 3.3 — Tool: terminal (deploy) + Airflow web UI or terminal (trigger)**
 ```
 .\solutions\submissions\baiju_mohan\03_big_data\deploy_dag.ps1
 ```
@@ -244,21 +256,25 @@ type outputs\results\baiju_mohan\03_big_data\pipeline_report_<today's date>.txt
 See [03_big_data/VALIDATION_EVIDENCE.md](03_big_data/VALIDATION_EVIDENCE.md) for
 real Spark/Kafka/Airflow run numbers behind this pillar.
 
-## Pillar 4 — Infrastructure & Governance
+## Pillar 4 — Infrastructure & Governance (Tasks 4.1–4.3)
 
-**Tool: Docker Desktop / terminal**
+**Task 4.1 — Tool: Docker Desktop / terminal**
 ```
 docker build -t presight-etl .
 docker run --rm -v ${PWD}/outputs:/app/outputs presight-etl
 ```
 (or `docker compose run --rm etl`, using the `etl` service in
 `docker-compose.override.yml`). Runs the same Task 2.2 pipeline inside the
-container. The DQ framework (`04_infrastructure/dq_framework.py`) isn't run
-standalone — it's imported by `airflow_dag.py`'s quality-gate task, so the
-`dq_report_{dataset}.md` files land in
-`outputs/results/baiju_mohan/04_infrastructure/` as part of the Pillar 3
-Airflow run above, not this Docker run. `data_governance.md` is a static
-document, no script to run.
+container. **Task 4.3**'s DQ framework (`04_infrastructure/dq_framework.py`) is imported
+by `airflow_dag.py`'s quality-gate task for its `run_data_quality_checks()` function only —
+that's what feeds the DAG's own `checks_run`/`checks_passed`/`checks_failed` numbers into
+`pipeline_report_<date>.txt` (Pillar 3). The DAG does **not** call this module's
+`write_dq_report_markdown()`, so it does not produce the `dq_report_{dataset}.md` files —
+those in `outputs/results/baiju_mohan/04_infrastructure/` are a standalone artifact from a
+manual, one-off call to `run_data_quality_checks()` + `write_dq_report_markdown()` outside
+the DAG (see `03_big_data/VALIDATION_EVIDENCE.md` for the discrepancy this causes: the
+existing `dq_report_employees.md` is stale relative to the DAG's current live numbers).
+**Task 4.2**'s `data_governance.md` is a static document, no script to run.
 
 **Check it worked:**
 ```

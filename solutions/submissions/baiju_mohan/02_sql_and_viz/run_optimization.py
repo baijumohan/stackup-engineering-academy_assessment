@@ -57,11 +57,23 @@ def split_sections(sql_text: str):
     orig_end = sql_text.index("-- REWRITTEN QUERY — before indexes")
     rewritten_end = sql_text.index("-- INDEXES —")
     indexes_end = sql_text.index("-- REWRITTEN QUERY — after indexes")
+    bonus_start = sql_text.index("-- BONUS")
     return (
         sql_text[:setup_end],
         sql_text[setup_end:orig_end],
         sql_text[orig_end:rewritten_end],
         sql_text[rewritten_end:indexes_end],
+        sql_text[bonus_start:],
+    )
+
+
+def bonus_index_sql(bonus_block: str) -> str:
+    """Pull the two live SQL statements (CREATE INDEX + ANALYZE) out of the
+    BONUS section, skipping the comment lines that document its captured
+    EXPLAIN ANALYZE output."""
+    return "\n".join(
+        line for line in bonus_block.split("\n")
+        if line.strip() and not line.strip().startswith("--")
     )
 
 
@@ -86,9 +98,10 @@ def main():
     with open(SQL_FILE, "r", encoding="utf-8") as f:
         sql_text = f.read()
 
-    setup_sql, original_block, rewritten_block, index_sql = split_sections(sql_text)
+    setup_sql, original_block, rewritten_block, index_sql, bonus_block = split_sections(sql_text)
     original_query = bare_query(original_block)
     rewritten_query = bare_query(rewritten_block)
+    bonus_sql = bonus_index_sql(bonus_block)
 
     stage_csvs_and_database()
 
@@ -130,6 +143,13 @@ def main():
     result3, times3 = bench(cur, rewritten_query)
     print(f"Rewritten+indexed: {len(result3)} rows | best={min(times3)*1000:.2f}ms | runs(ms)={[round(t*1000,2) for t in times3]}")
     print(f"Speedup vs original (best-of-5): {min(times)/min(times3):.2f}x")
+
+    print("\n--- With bonus (payment_status, amount) index ---")
+    cur.execute(bonus_sql)
+    result4, times4 = bench(cur, rewritten_query)
+    print(f"Rewritten+amount-indexed: {len(result4)} rows | best={min(times4)*1000:.2f}ms | runs(ms)={[round(t*1000,2) for t in times4]}")
+    print(f"Speedup vs original (best-of-5): {min(times)/min(times4):.2f}x")
+    print(f"Speedup vs status+project_id index (best-of-5): {min(times3)/min(times4):.2f}x")
 
     cur.close()
     conn.close()

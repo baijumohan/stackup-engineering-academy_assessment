@@ -40,7 +40,14 @@ solutions/submissions/baiju_mohan/
 │   └── README.md
 ├── 04_infrastructure/
 │   ├── data_governance.md           # Task 4.2
-│   ├── dq_framework.py              # Task 4.3 — imported by the Airflow DQ gate
+│   ├── dq_framework.py              # Task 4.3 — imported by the Airflow DQ gate for
+│   │                                #   run_data_quality_checks(); also runnable
+│   │                                #   standalone (python dq_framework.py) via its
+│   │                                #   own main(), which regenerates dq_report_*.md
+│   │                                #   using the same loaders/reference_tables the
+│   │                                #   DAG uses
+│   ├── Dockerfile                   # read-only copy for visibility — NOT the build
+│   │                                #   source, see note below
 │   └── README.md
 ├── project_docs/                    # deeper per-pillar write-ups (linked above)
 ├── HOW_TO_RUN.md
@@ -49,6 +56,9 @@ solutions/submissions/baiju_mohan/
 # Dockerfile/.dockerignore live at the repo root, not in 04_infrastructure/ —
 # tasks/04_infrastructure/INSTRUCTIONS.md requires it there (build context
 # needs solutions/ and datasets/, siblings of 04_infrastructure/, not children).
+# The copy inside 04_infrastructure/ is for visibility only; docker-compose.
+# override.yml and every documented `docker build` command still point at
+# the root Dockerfile — edit that one and re-copy, not the other way round.
 ```
 
 ## Output Layout
@@ -322,8 +332,8 @@ File: `04_infrastructure/data_governance.md`
 File: `04_infrastructure/dq_framework.py` — used by the Airflow quality check in Task 3.3, not a separate copy.
 
 - **What was done:** Built 9 checks (completeness, uniqueness, valid ranges for numbers and dates, cross-column consistency, foreign-key checks, distribution checks, freshness, and outliers), all controlled by one settings dictionary so a new rule is a config change, not a code change.
-- **Output:** a markdown report per dataset.
-- **Observations:** The checks were run against the real, uncleaned data instead of data that had already been fixed — the results are a genuine mix of passes and failures (6/9, 3/9, 6/9), not a report tuned to look clean.
+- **Output:** a markdown report per dataset (`dq_report_{dataset}.md`), written by `write_dq_report_markdown()`. This now runs two ways: automatically as part of `airflow_dag.py`'s `validate_data_quality` task on every DAG run, or standalone via `dq_framework.py`'s own `main()` (`python dq_framework.py`) using the same loaders and reference-table logic as the DAG — both produce identical results for the same data.
+- **Observations:** The checks were run against the real, uncleaned data instead of data that had already been fixed — the results are a genuine mix of passes and failures (projects 6/9, employees 3/9, transactions 5/9 as of the last live run), not a report tuned to look clean. Note the `freshness` check is time-sensitive (flags data older than 30 days) — transactions' pass count can shift run to run purely based on *when* it's run, independent of any code or data change.
 
 ## 7. Key Engineering Decisions
 

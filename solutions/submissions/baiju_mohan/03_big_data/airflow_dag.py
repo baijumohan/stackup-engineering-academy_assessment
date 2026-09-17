@@ -39,7 +39,7 @@ from airflow.operators.empty import EmptyOperator
 
 from etl_pipeline import load_projects, load_employees, transform_projects, clean_employees
 from etl_full import load_transactions, enrich_transactions, write_outputs, RESULTS_DIR as ETL_RESULTS_DIR
-from dq_framework import run_data_quality_checks
+from dq_framework import run_data_quality_checks, write_dq_report_markdown
 
 logger = logging.getLogger(__name__)
 
@@ -102,9 +102,10 @@ def task_extract_transactions(**context):
 def task_validate_data_quality(**context):
     """
     DQ GATE. Reloads all three raw datasets and runs the Task 4.3 framework
-    on each. Raises ValueError — failing this task and blocking every
-    downstream task — if completeness on a dataset's primary key drops
-    below 80%.
+    on each, writing dq_report_{dataset}.md per dataset via dq_framework's
+    own write_dq_report_markdown(). Raises ValueError — failing this task
+    and blocking every downstream task — if completeness on a dataset's
+    primary key drops below 80%.
     """
     ti = context["ti"]
 
@@ -123,6 +124,7 @@ def task_validate_data_quality(**context):
         # contain the dataset being validated, not just the other two.
         result = run_data_quality_checks(df, name, reference_tables=raw)
         dq_results[name] = result
+        write_dq_report_markdown(result)
 
         key_col = KEY_COLUMNS[name]
         completeness = result["results"]["completeness"]["details"].get(key_col, 0)

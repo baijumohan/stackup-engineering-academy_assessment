@@ -1,6 +1,8 @@
 # Presight Data Governance Document
 
-**Author:** Baiju Mohan · **Date:** 2026-08-20 · **Scope:** `projects`, `employees`, `transactions`, `employees_salary_history`
+**Author:** Baiju Mohan · **Date:** 2026-08-20 · **Scope:** `projects`, `employees`, `transactions`, `employees_salary_history`, `events_stream`
+
+**Note on scope:** Task 4.2 required the first four datasets. `events_stream` is added beyond that minimum — it flows through the same pipeline (Pillar 3), was already shown as a source in Section 6's lineage diagram, and contains data (IP addresses, per-employee activity) that warrants the same classification/retention/access treatment as the rest, not just a lineage mention.
 
 ---
 
@@ -12,8 +14,9 @@
 | employees | HRIS (Human Resources Information System) | CSV | Daily batch export | 1,000 rows, ~130 KB | Low — a handful of hires/status changes per week, not per day |
 | transactions | Finance/AP (Accounts Payable) system | JSON | Near-real-time / daily batch | 50,000 rows, ~10 MB | ~130-150 new transactions/day at current volume (50,000 rows over the observed ~2022-01 to 2026-08 date range) |
 | employees_salary_history | HRIS payroll module | CSV | Event-driven (on hire/promotion/raise), reconciled to a daily export | ~1,826 rows | Low — one new row per salary/role change event, not a daily volume driver |
+| events_stream | Platform application event log | JSONL, one file per month | Append-only, 12 monthly files | ~100,000 events across 12 files, ~20 MB raw | ~8,000-8,500 events/month at current volume |
 
-**Note:** transactions is the only dataset with meaningful daily growth — it's the one that'll need incremental/append-only loading once volumes outgrow a daily full re-export. See Section 6 for where that fits in the pipeline.
+**Note:** transactions is the only one of the four core datasets with meaningful daily growth — it's the one that'll need incremental/append-only loading once volumes outgrow a daily full re-export. See Section 6 for where that fits in the pipeline.
 
 ---
 
@@ -73,7 +76,20 @@ Classification levels (as defined in the task brief):
 | effective_date | Internal | |
 | change_type, change_reason | **Confidential** | `change_reason` free-text can reveal sensitive HR context (e.g. performance-related reasoning) — treat as HR-restricted even though not classic PII |
 
-**PII summary:** `employees.full_name` and `employees.email` are direct PII under both **GDPR** and **UAE PDPL**. `employees.salary`, `employees_salary_history.{previous,new}_salary`, and `transactions.approved_by` (once joined to a name) are PII-adjacent — sensitive because of the *combination* with an identifiable individual, which is exactly what both regulations are designed to catch.
+### events_stream/*.jsonl
+
+| Column | Classification | Regulation (if PII) |
+|---|---|---|
+| event_id, event_type, project_id, timestamp | Internal | |
+| user_id | **PII (indirect)** | Employee ID resolves to a named individual via `employees.csv` — same indirect-PII pattern as `transactions.approved_by`, except this field is the *actor* on every single event, so in aggregate it's a full per-employee activity/audit trail, not a one-off reference |
+| payload.ip_address (`login` events) | **PII** | GDPR Recital 30 and UAE PDPL both treat IP addresses as personal data — directly identifies a device/session, no join required |
+| payload.device (`login` events) | Internal | Device type only (e.g. "desktop") — not personal data on its own |
+| payload.assigned_to, approver, resolved_by, escalated_to (various event types) | **PII (indirect)** | Employee ID references, same reasoning as `user_id` |
+| payload.attendees (`meeting_scheduled`) | **PII (indirect)** | List of employee IDs — same as above, multiplied across attendees |
+| payload.amount, old_budget, new_budget | **Confidential** | Financial figures embedded in event payloads |
+| payload.task_name, document_name, comment_length, session_duration_min, reason, resolution, severity, milestone, meeting_title, scheduled_at, due_date, completion_pct, size_kb, old_status, new_status | Internal | Operational metadata, not personal data on its own |
+
+**PII summary:** `employees.full_name` and `employees.email` are direct PII under both **GDPR** and **UAE PDPL**. `events_stream.payload.ip_address` is also direct PII under both, with no join needed. `employees.salary`, `employees_salary_history.{previous,new}_salary`, `transactions.approved_by`, and `events_stream.user_id`/`assigned_to`/`approver`/`resolved_by`/`escalated_to`/`attendees` (once joined to a name) are PII-adjacent — sensitive because of the *combination* with an identifiable individual, which is exactly what both regulations are designed to catch. `events_stream.user_id` is worth flagging specifically: unlike a single FK column elsewhere, it appears on *every* event, so the dataset as a whole functions as a per-employee behavioural log, not just an operational record.
 
 ---
 
@@ -85,6 +101,7 @@ Classification levels (as defined in the task brief):
 | employees | Head of HR | HR Systems Analyst | Head of HR |
 | transactions | Head of Finance | Finance Data Analyst | Finance Director |
 | employees_salary_history | Head of HR (jointly with Finance/Payroll) | HR Systems Analyst | Head of HR + Finance Director (dual approval) |
+| events_stream | Head of Platform Engineering | Data Engineering Lead | Platform Engineering Director |
 
 **Owner vs. Steward, in my own words:** the **Owner** is accountable for the data — why it exists, what depends on it, and signs off on policy calls like "can this be shared" or "how long do we keep it." The **Steward** is the operational custodian — knows the schema, fixes DQ issues, handles access requests, executes the retention policy the Owner approved. Owner sets the what/why, Steward handles the how. Can be the same person on a small team, but the roles matter once the org grows.
 
@@ -98,6 +115,7 @@ Classification levels (as defined in the task brief):
 | employees | Duration of employment + 7 years post-departure | UAE Labour Law and common HR audit practice require retaining employment records for a period after termination for potential labour disputes | Anonymise direct identifiers (name, email) after the retention window, retain aggregated fields for historical HR analytics; full delete after an additional legal hold buffer if no dispute is open | HR + Data Engineering |
 | transactions | 5 years | UAE tax law (VAT-related record-keeping) generally requires financial records to be retained for a multi-year window for audit purposes; 5 years is a conservative floor for this class of financial transaction record | Archive to cold storage after 1 year active, delete after 5 (subject to Finance sign-off per audit cycle) | Finance + Data Engineering |
 | **employees_salary_history** | **Employment duration + 10 years post-departure** (longer than the base employee record) | **Special consideration** (see below) | Anonymise employee_id linkage after the window (keep aggregate compensation trend data for benchmarking, strip the identifying key); full delete only after legal hold clears | HR + Finance (dual sign-off, given payroll/tax relevance) |
+| events_stream | 2 years | Operational/audit-trail value drops sharply after ~1-2 years; no long-term legal retention driver identified (unlike financial or payroll records) — kept short specifically to limit the exposure window of the embedded IP-address and per-employee actor data | Delete raw JSONL files after 2 years; the derived aggregate tables (Task 3.1's Parquet summaries) may be retained longer since they're de-identified rollups, not raw per-event records | Data Engineering (automated lifecycle policy) |
 
 **Special consideration — employees_salary_history.csv:** needs a longer window than the base `employees` table for two reasons: **UAE labour law** wage-record obligations, and **tax/payroll audit** requirements — historical salary changes are evidence for payroll tax filings and can be requested years later in a dispute or audit. Set to employment duration + 10 years (vs. +7 for the base record) to cover the payroll/tax angle specifically. This is a policy recommendation, not a legal citation — confirm against current UAE Federal Labour Law and Federal Tax Authority requirements before implementation.
 
@@ -107,13 +125,13 @@ Classification levels (as defined in the task brief):
 
 Access levels: `None`, `Read`, `Read + Write`, `Full (including delete)`
 
-| Persona | Projects | Employees | Transactions | Salary History |
-|---|---|---|---|---|
-| Data Engineer | Read + Write | Read + Write | Read + Write | **Read** (pipeline needs it for SCD2 builds, not ad-hoc browsing — see justification) |
-| BI Analyst | Read | Read (excl. salary column) | Read | **None** |
-| Finance Team | Read | None | Read + Write | **Read** (payroll reconciliation only) |
-| HR Team | None | Read + Write | None | Read + Write |
-| Executive | Read | Read (aggregated only, no row-level salary) | Read (aggregated only) | **None** |
+| Persona | Projects | Employees | Transactions | Salary History | Event Stream |
+|---|---|---|---|---|---|
+| Data Engineer | Read + Write | Read + Write | Read + Write | **Read** (pipeline needs it for SCD2 builds, not ad-hoc browsing — see justification) | Read + Write (raw JSONL) |
+| BI Analyst | Read | Read (excl. salary column) | Read | **None** | Read (aggregated Parquet tables only, not raw JSONL) |
+| Finance Team | Read | None | Read + Write | **Read** (payroll reconciliation only) | None |
+| HR Team | None | Read + Write | None | Read + Write | None (request-based access only, e.g. a formal HR investigation) |
+| Executive | Read | Read (aggregated only, no row-level salary) | Read (aggregated only) | **None** | Read (aggregated only) |
 
 **Justification (least privilege):**
 
@@ -122,6 +140,7 @@ Access levels: `None`, `Read`, `Read + Write`, `Full (including delete)`
 - **BI Analyst excludes the `salary` column on employees** even though they get row-level Read elsewhere — column-level masking, not just table-level access, is needed here since `employees.salary` is Confidential/PII per Section 2 but the rest of the row (department, role, region) is legitimate BI material.
 - **Executive gets aggregated-only** on Transactions/Employees rather than raw Read — an executive dashboard (Task 2.4) needs KPI-level numbers, not row-level browsing capability, which is both a least-privilege call and reduces the blast radius if an executive's credentials are compromised.
 - **Finance Team has no access to Employees** beyond what Transactions already exposes via `approved_by` (a foreign key, not a name) — Finance doesn't need HR's employee master data to do transaction reconciliation.
+- **Raw event stream access is restricted to Data Engineering.** The raw JSONL files carry `payload.ip_address` (direct PII) and a per-employee actor trail (`user_id` on every event) — everyone else consumes only the de-identified aggregate Parquet tables (Task 3.1's project/user activity summaries), never the raw per-event records. HR gets no standing access even though the data is nominally about employee activity — any legitimate need (e.g. an investigation) should go through a formal request, not default access, since this is closer to behavioural monitoring data than an HR system of record.
 
 ---
 
